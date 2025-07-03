@@ -10,7 +10,7 @@
 - Flutter + Firebase Firestore
 - Material 3 디자인
 
-# 📱 WithU - 둘만의 일정 공유 앱 (완성 문서)
+
 
 ## 🎯 프로젝트 개요
 
@@ -71,34 +71,6 @@ lib/
 - **실시간 동기화**: Firebase Firestore StreamBuilder
 - **CRUD 완성**: 추가/조회/수정/삭제
 - **고급 쿼리**: 날짜별, 진행중, 하루종일 필터링
-
----
-
-## 🔥 Firebase 설정
-
-### **Firestore 구조**
-```json
-withu_schedules (컬렉션)
-└── [자동생성ID] (문서)
-    ├── title: "회의"
-    ├── memo: "프로젝트 논의"
-    ├── scheduled_at: Timestamp
-    ├── end_time: Timestamp | null
-    ├── is_all_day: boolean
-    └── created_at: Timestamp
-```
-
-### **보안 규칙**
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /withu_schedules/{document=**} {
-      allow read, write: if true; // 개인용이므로 모든 접근 허용
-    }
-  }
-}
-```
 
 ---
 
