@@ -486,42 +486,17 @@ class _WeeklyScreenState extends State<WeeklyScreen> {
                   ),
                   child: daySchedules.isNotEmpty
                       ? Container(
-                    padding: EdgeInsets.all(6), // 🆕 패딩 증가
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min, // 🔧 오버플로우 해결
-                      children: [
-                        Flexible( // 🔧 Flexible로 감싸서 공간 제한
-                          child: Text(
-                            _getSlotText(daySchedules),
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10, // 🔧 11 → 10으로 줄임
-                              fontWeight: FontWeight.w600,
-                            ),
-                            maxLines: 1, // 🔧 2 → 1로 줄임
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                        // 🔧 시간 정보는 공간이 충분할 때만 표시
-                        if (daySchedules.length == 1 && !daySchedules.first.isAllDay && _hourHeight >= 50) ...[
-                          SizedBox(height: 1),
-                          Flexible(
-                            child: Text(
-                              _getTimeInfo(daySchedules.first, date),
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 8, // 🔧 9 → 8로 줄임
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ],
-                      ],
+                    padding: EdgeInsets.all(4), // 🔧 패딩 줄임 (6→4)
+                    child: Text(
+                      _getSlotText(daySchedules),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11, // 🔧 폰트 크기 증가 (10→11)
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 2, // 🔧 1→2줄로 증가
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                   )
                       : null,
