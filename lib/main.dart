@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
@@ -28,6 +29,19 @@ class WithUApp extends StatelessWidget {
     return MaterialApp(
       title: 'WithU - 둘만의 일정 공유',
       debugShowCheckedModeBanner: false,
+
+      // 🇰🇷 한국어 지원 추가
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: [
+        Locale('ko', 'KR'),
+        Locale('en', 'US'),
+      ],
+      locale: Locale('ko', 'KR'),
+
       theme: ThemeData(
         primarySwatch: Colors.indigo,
         useMaterial3: true,
@@ -96,11 +110,14 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   final FirestoreService _firestoreService = FirestoreService();
 
+  // 각 화면의 GlobalKey - 화면 상태에 접근하기 위해
+  final GlobalKey<CalendarScreenState> _calendarKey = GlobalKey<CalendarScreenState>();
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> _screens = [
       HomeScreen(),
-      CalendarScreen(),
+      CalendarScreen(key: _calendarKey), // GlobalKey 추가
       WeeklyScreen(),
     ];
 
@@ -179,7 +196,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
 
-      // 모든 탭에서 사용할 FAB
+      // 🎯 스마트 FAB - 화면별 맞춤 동작
       floatingActionButton: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -209,49 +226,30 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // 일정 추가 다이얼로그 표시
+  // 🎯 스마트 일정 추가 다이얼로그
   void _showAddScheduleDialog() async {
+    // 현재 화면에 따라 다른 기본 날짜 설정
+    DateTime? selectedDate = _getSelectedDateForCurrentScreen();
+
     final schedule = await showScheduleFormDialog(
       context: context,
-      selectedDate: DateTime.now(), // 기본값: 오늘
+      selectedDate: selectedDate,
     );
 
     if (schedule != null) {
       try {
-        await _firestoreService.addSchedule(schedule);
+        // 수정 모드인지 새 일정인지 구분
+        if (schedule.id.isNotEmpty) {
+          // 수정 모드
+          await _firestoreService.updateSchedule(schedule.id, schedule);
+        } else {
+          // 새 일정 추가
+          await _firestoreService.addSchedule(schedule);
+        }
 
-        // 성공 메시지 + 탭 이동 제안
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text('일정이 추가되었습니다!'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _selectedIndex = 1; // 달력 탭으로 이동
-                    });
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  },
-                  child: Text(
-                    '확인',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Color(0xFF10B981),
-            duration: Duration(seconds: 3),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
+        // 화면별 맞춤 성공 메시지
+        _showSuccessMessage();
+
       } catch (e) {
         // 오류 메시지
         ScaffoldMessenger.of(context).showSnackBar(
@@ -260,7 +258,9 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 Icon(Icons.error_outline, color: Colors.white),
                 SizedBox(width: 8),
-                Text('일정 추가에 실패했습니다: $e'),
+                Expanded(
+                  child: Text('일정 처리에 실패했습니다: $e'),
+                ),
               ],
             ),
             backgroundColor: Color(0xFFEF4444),
@@ -273,5 +273,88 @@ class _MainScreenState extends State<MainScreen> {
         );
       }
     }
+  }
+
+  // 🎯 현재 화면에 맞는 선택된 날짜 가져오기
+  DateTime? _getSelectedDateForCurrentScreen() {
+    switch (_selectedIndex) {
+      case 0: // 홈 화면
+        return DateTime.now(); // 기본값: 오늘
+
+      case 1: // 달력 화면
+      // 달력에서 선택된 날짜 가져오기
+        final calendarState = _calendarKey.currentState;
+        if (calendarState != null) {
+          return calendarState.selectedDay ?? DateTime.now();
+        }
+        return DateTime.now();
+
+      case 2: // 주간 화면
+        return DateTime.now(); // 주간뷰는 추후 구현
+
+      default:
+        return DateTime.now();
+    }
+  }
+
+  // 🎯 화면별 맞춤 성공 메시지
+  void _showSuccessMessage() {
+    String message = '일정이 추가되었습니다!';
+    String actionText = '확인';
+    VoidCallback? onAction;
+
+    switch (_selectedIndex) {
+      case 0: // 홈 화면
+        message = '일정이 추가되었습니다!';
+        actionText = '달력 보기';
+        onAction = () {
+          setState(() {
+            _selectedIndex = 1; // 달력 탭으로 이동
+          });
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        };
+        break;
+
+      case 1: // 달력 화면
+        message = '선택한 날짜에 일정이 추가되었습니다!';
+        actionText = '확인';
+        // 달력 화면에서는 이미 해당 날짜에 있으므로 특별한 액션 없음
+        break;
+
+      case 2: // 주간 화면
+        message = '일정이 추가되었습니다!';
+        actionText = '새로고침';
+        // 주간뷰 새로고침 로직 (추후 구현)
+        break;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 8),
+            Expanded(child: Text(message)),
+            if (onAction != null)
+              TextButton(
+                onPressed: onAction,
+                child: Text(
+                  actionText,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        backgroundColor: Color(0xFF10B981),
+        duration: Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
   }
 }

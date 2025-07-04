@@ -23,25 +23,18 @@ class FirestoreService {
 
   // 특정 날짜의 일정 가져오기 (실시간) - 업데이트됨
   Stream<List<Schedule>> getSchedulesByDate(DateTime date) {
-    DateTime startOfDay = DateTime(date.year, date.month, date.day);
-    DateTime endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
+    return getAllSchedules().map((all) {
+      // includesDate(date)가 true인 일정만 필터링
+      final List<Schedule> filtered = all.where((s) => s.includesDate(date)).toList();
 
-    return _firestore
-        .collection(_collection)
-        .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-        .where('scheduled_at', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
-        .orderBy('scheduled_at')
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) => Schedule.fromFirestore(doc)).toList()
-        ..sort((a, b) {
-          // 하루종일 일정을 맨 위에 표시
-          if (a.isAllDay && !b.isAllDay) return -1;
-          if (!a.isAllDay && b.isAllDay) return 1;
+      // 하루종일을 맨 위, 그 다음 시간순 정렬
+      filtered.sort((a, b) {
+        if (a.isAllDay && !b.isAllDay) return -1;
+        if (!a.isAllDay && b.isAllDay) return 1;
+        return a.scheduledAt.compareTo(b.scheduledAt);
+      });
 
-          // 같은 타입이면 시간순 정렬
-          return a.scheduledAt.compareTo(b.scheduledAt);
-        });
+      return filtered;
     });
   }
 
@@ -84,16 +77,21 @@ class FirestoreService {
   }
 
   // 특정 시간 범위의 일정 가져오기 (새로 추가)
-  Stream<List<Schedule>> getSchedulesByTimeRange(DateTime startDate, DateTime endDate) {
-    return _firestore
-        .collection(_collection)
-        .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .where('scheduled_at', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-        .orderBy('scheduled_at')
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-        .map((doc) => Schedule.fromFirestore(doc))
-        .toList());
+  Stream<List<Schedule>> getSchedulesByTimeRange(DateTime weekStart, DateTime weekEnd) {
+    return getAllSchedules().map((all) {
+      return all.where((s) {
+        // 1) 주 시작 이전에 시작해 주 중간에 끝난 일정
+        // 2) 주 후반에 시작해 주 종료 이후에 끝난 일정
+        // 모두 걸러낼 수 있는 조건
+        return s.actualEndTime.isAfter(weekStart) && s.startTime.isBefore(weekEnd);
+      }).toList()
+      // all-day 먼저, 그 다음 시간순 정렬
+        ..sort((a, b) {
+          if (a.isAllDay && !b.isAllDay) return -1;
+          if (!a.isAllDay && b.isAllDay) return 1;
+          return a.startTime.compareTo(b.startTime);
+        });
+    });
   }
 
   // 하루종일 일정만 가져오기 (새로 추가)

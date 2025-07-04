@@ -22,14 +22,17 @@ class ScheduleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isToday = utils.DateUtils.isToday(schedule.scheduledAt);
+    final baseColor = schedule.ownerColorValue != null
+        ? Color(schedule.ownerColorValue!)
+        : Color(0xFF6366F1);
 
     return Container(
       margin: EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isToday
-              ? [Color(0xFF6366F1).withOpacity(0.05), Color(0xFF8B5CF6).withOpacity(0.05)]
-              : [Colors.white, Colors.white],
+              ? [baseColor.withOpacity(0.15), baseColor.withOpacity(0.25)]
+              : [baseColor.withOpacity(0.05), baseColor.withOpacity(0.1)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -63,17 +66,15 @@ class ScheduleTile extends StatelessWidget {
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: isToday
-                          ? [Color(0xFF6366F1), Color(0xFF8B5CF6)]
-                          : [Color(0xFF64748B), Color(0xFF475569)],
+                          ? [baseColor.withOpacity(0.7), baseColor]
+                          : [baseColor.withOpacity(0.5), baseColor.withOpacity(0.8)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: isToday
-                            ? Color(0xFF6366F1).withOpacity(0.3)
-                            : Colors.black.withOpacity(0.1),
+                        color: baseColor.withOpacity(0.3),
                         blurRadius: 8,
                         offset: Offset(0, 4),
                       ),
@@ -121,6 +122,37 @@ class ScheduleTile extends StatelessWidget {
 
                       SizedBox(height: 12),
 
+                      // 🆕 날짜 범위 표시 (여러 날 일정일 때)
+                      if (schedule.isMultiDay) ...[
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.date_range_rounded,
+                                size: 16,
+                                color: Color(0xFF6B7280),
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                schedule.dateRangeText,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF6B7280),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                      ],
+
                       // 시간 및 배지
                       Row(
                         children: [
@@ -159,8 +191,37 @@ class ScheduleTile extends StatelessWidget {
                             ),
                           ),
 
+                          // 🆕 여러 날 일정 배지
+                          if (schedule.isMultiDay) ...[
+                            SizedBox(width: 8),
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Color(0xFF3B82F6).withOpacity(0.3),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                '${schedule.durationInDays}일간',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+
                           // 하루종일 배지
-                          if (schedule.isAllDay) ...[
+                          if (schedule.isAllDay && !schedule.isMultiDay) ...[
                             SizedBox(width: 8),
                             Container(
                               padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -217,8 +278,8 @@ class ScheduleTile extends StatelessWidget {
                             ),
                           ],
 
-                          // 진행 중 배지
-                          if (_isCurrentlyActive()) ...[
+                          // 🆕 진행 중 배지 (개선된 로직)
+                          if (schedule.isCurrentlyActive) ...[
                             SizedBox(width: 8),
                             Container(
                               padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -282,9 +343,12 @@ class ScheduleTile extends StatelessWidget {
     );
   }
 
-  // 시간 표시 텍스트 생성
+  // 🆕 시간 표시 텍스트 생성 (개선됨)
   String _getTimeDisplayText() {
     if (schedule.isAllDay) {
+      if (schedule.isMultiDay) {
+        return '하루종일';
+      }
       return showDate
           ? utils.DateUtils.formatDate(schedule.scheduledAt)
           : '하루종일';
@@ -292,24 +356,14 @@ class ScheduleTile extends StatelessWidget {
 
     if (showDate) {
       // 날짜 + 시간 표시
+      if (schedule.isMultiDay) {
+        return '${utils.DateUtils.formatDateTime(schedule.scheduledAt)} 시작';
+      }
       return utils.DateUtils.formatDateTime(schedule.scheduledAt);
     } else {
-      // 시간만 표시 (시작시간 - 종료시간)
+      // 시간만 표시 (새로운 timeText 메서드 활용)
       return schedule.timeText;
     }
-  }
-
-  // 현재 진행 중인 일정인지 확인
-  bool _isCurrentlyActive() {
-    if (schedule.isAllDay) {
-      return utils.DateUtils.isToday(schedule.scheduledAt);
-    }
-
-    final now = DateTime.now();
-    final startTime = schedule.startTime;
-    final endTime = schedule.actualEndTime;
-
-    return now.isAfter(startTime) && now.isBefore(endTime);
   }
 
   // 일정 제목에 따른 아이콘 선택

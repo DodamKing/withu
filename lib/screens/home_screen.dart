@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../models/schedule.dart';
 import '../services/firestore_service.dart';
 import '../widgets/schedule_tile.dart';
@@ -16,20 +17,43 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text('WithU'),
+        centerTitle: true,
+        elevation: 0,
         backgroundColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF7F56D9).withOpacity(0.8),
+                Color(0xFF9E77ED).withOpacity(0.8),
+              ],
+            ),
+          ),
+        ),
+        title: Text(
+          'WithU',
+          style: GoogleFonts.pacifico(  // 또는 Lobster, Amatic SC 등
+            fontSize: 26,
+            color: Colors.white,
+            letterSpacing: 1.2,
+          ),
+        ),
       ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment(-0.3, -1),
+            end: Alignment(0.3, 1),
             colors: [
-              Color(0xFF6366F1).withOpacity(0.1),
-              Color(0xFFEC4899).withOpacity(0.05),
-              Colors.white,
+              Color(0xFFE8F1FA), // 아주 연한 스카이 블루
+              Color(0xFFB8DAF2), // 연한 블루
+              Color(0xFFA0E0C0), // 연두빛을 살짝 섞어
+              Color(0xFFFAC8C9), // 연한 핑크
+              Color(0xFFDDE2E6), // 연회색
             ],
-            stops: [0.0, 0.3, 0.7],
+            stops: [0.0, 0.3, 0.5, 0.7, 1.0],
           ),
         ),
         child: SafeArea(

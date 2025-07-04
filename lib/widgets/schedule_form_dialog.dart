@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/schedule.dart';
-import '../utils/date_utils.dart' as utils;
 
 class ScheduleFormDialog extends StatefulWidget {
   final DateTime? selectedDate;
-  final Schedule? existingSchedule; // 수정할 때 사용
+  final Schedule? existingSchedule;
 
   const ScheduleFormDialog({
     Key? key,
@@ -20,34 +20,72 @@ class ScheduleFormDialog extends StatefulWidget {
 class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
   final _titleController = TextEditingController();
   final _memoController = TextEditingController();
-  late DateTime _selectedDate;
-  late TimeOfDay _startTime;
-  late TimeOfDay _endTime;
+  final _scrollController = ScrollController();
+
+  // 시작일시 관련
+  late DateTime _startDate;
+  TimeOfDay _startTime = TimeOfDay(hour: 9, minute: 0);
+
+  // 종료일시 관련
+  late DateTime _endDate;
+  TimeOfDay _endTime = TimeOfDay(hour: 10, minute: 0);
+
   bool _isAllDay = false;
+  bool _isLoading = false;
+
+  Color _selectedColor = Colors.blueAccent;
 
   @override
   void initState() {
     super.initState();
+    _initializeForm();
 
+    if (widget.existingSchedule != null && widget.existingSchedule!.ownerColorValue != null) {
+      _selectedColor = Color(widget.existingSchedule!.ownerColorValue!);
+    }
+  }
+
+  void _initializeForm() {
     if (widget.existingSchedule != null) {
-      // 수정 모드
+      // 수정 모드 - 기존 Schedule 모델에서 데이터 추출
       final schedule = widget.existingSchedule!;
       _titleController.text = schedule.title;
       _memoController.text = schedule.memo;
-      _selectedDate = DateTime(
+      _isAllDay = schedule.isAllDay;
+
+      // 시작일시
+      _startDate = DateTime(
         schedule.scheduledAt.year,
         schedule.scheduledAt.month,
         schedule.scheduledAt.day,
       );
-      _startTime = TimeOfDay.fromDateTime(schedule.scheduledAt);
-      _endTime = schedule.endTime != null
-          ? TimeOfDay.fromDateTime(schedule.endTime!)
-          : TimeOfDay.fromDateTime(schedule.scheduledAt.add(Duration(hours: 1)));
-      _isAllDay = schedule.isAllDay;
+
+      if (!_isAllDay) {
+        _startTime = TimeOfDay.fromDateTime(schedule.scheduledAt);
+      }
+
+      // 종료일시
+      if (schedule.endTime != null) {
+        _endDate = DateTime(
+          schedule.endTime!.year,
+          schedule.endTime!.month,
+          schedule.endTime!.day,
+        );
+
+        if (!_isAllDay) {
+          _endTime = TimeOfDay.fromDateTime(schedule.endTime!);
+        }
+      } else {
+        _endDate = _startDate;
+        if (!_isAllDay) {
+          _endTime = TimeOfDay(hour: (_startTime.hour + 1) % 24, minute: _startTime.minute);
+        }
+      }
     } else {
       // 새 일정 모드
       final baseDate = widget.selectedDate ?? DateTime.now();
-      _selectedDate = DateTime(baseDate.year, baseDate.month, baseDate.day);
+      _startDate = DateTime(baseDate.year, baseDate.month, baseDate.day);
+      _endDate = _startDate;
 
       final now = DateTime.now();
       _startTime = TimeOfDay(hour: now.hour, minute: 0);
@@ -60,673 +98,666 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
   void dispose() {
     _titleController.dispose();
     _memoController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingSchedule != null;
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              offset: Offset(0, 10),
+    return Material(
+      color: Colors.black54,
+      child: SafeArea(
+        child: Center(
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            constraints: BoxConstraints(
+              maxHeight: screenHeight * 0.85,
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 헤더
-            Container(
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            margin: EdgeInsets.only(
+              bottom: keyboardHeight > 0 ? keyboardHeight + 20 : 0,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
                 ),
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(24),
-                  topRight: Radius.circular(24),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      isEditing ? Icons.edit_rounded : Icons.add_rounded,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 헤더
+                _buildHeader(isEditing),
+
+                // 스크롤 가능한 폼
+                Flexible(
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    padding: EdgeInsets.all(20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          isEditing ? '일정 수정' : '새 일정',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                        // 제목 입력
+                        _buildInputField(
+                          controller: _titleController,
+                          label: '제목',
+                          hint: '일정 제목을 입력하세요',
+                          icon: Icons.title,
+                          color: Color(0xFF6366F1),
+                          autofocus: true,
                         ),
-                        Text(
-                          isEditing ? '기존 일정을 수정합니다' : '새로운 일정을 추가합니다',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
-                          ),
+
+                        SizedBox(height: 20),
+
+                        // 날짜 및 시간 섹션
+                        _buildDateTimeSection(),
+
+                        Text('일정 색상 선택',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)
                         ),
+                        SizedBox(height: 8),
+
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            Colors.blueAccent,
+                            Colors.greenAccent,
+                            Colors.orangeAccent,
+                            Colors.pinkAccent,
+                            Colors.purpleAccent,
+                          ].map((color) {
+                            final isSelected = _selectedColor.value == color.value;
+                            return GestureDetector(
+                              onTap: () => setState(() => _selectedColor = color),
+                              child: Container(
+                                width: 32, height: 32,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                  border: isSelected
+                                      ? Border.all(width: 2, color: Colors.black)
+                                      : null,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+
+                        SizedBox(height: 20),
+
+                        // 메모 입력
+                        _buildInputField(
+                          controller: _memoController,
+                          label: '메모 (선택사항)',
+                          hint: '추가 설명을 입력하세요',
+                          icon: Icons.note,
+                          color: Color(0xFF10B981),
+                          maxLines: 3,
+                        ),
+
+                        SizedBox(height: 80), // 버튼 영역 확보
                       ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Container(
-                      padding: EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.close_rounded,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // 내용
-            Flexible(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    // 제목 입력
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Color(0xFFE2E8F0)),
-                      ),
-                      child: TextField(
-                        controller: _titleController,
-                        decoration: InputDecoration(
-                          labelText: '제목',
-                          hintText: '일정 제목을 입력하세요',
-                          prefixIcon: Container(
-                            margin: EdgeInsets.all(12),
-                            padding: EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.title_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                          labelStyle: TextStyle(
-                            color: Color(0xFF6B7280),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        autofocus: true,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1F2937),
-                        ),
-                      ),
-                    ),
-
-                    SizedBox(height: 20),
-
-                    // 메모 입력
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Color(0xFFE2E8F0)),
-                      ),
-                      child: TextField(
-                        controller: _memoController,
-                        decoration: InputDecoration(
-                          labelText: '메모',
-                          hintText: '일정에 대한 추가 설명을 입력하세요',
-                          prefixIcon: Container(
-                            margin: EdgeInsets.all(12),
-                            padding: EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFF10B981), Color(0xFF059669)],
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.note_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                          labelStyle: TextStyle(
-                            color: Color(0xFF6B7280),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        maxLines: 3,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Color(0xFF1F2937),
-                        ),
-                      ),
-                    ),
-
-                    SizedBox(height: 24),
-
-                    // 날짜 및 시간 선택
-                    Container(
-                      padding: EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(0xFF6366F1).withOpacity(0.05),
-                            Color(0xFF8B5CF6).withOpacity(0.05),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Color(0xFF6366F1).withOpacity(0.2)),
-                      ),
-                      child: Column(
-                        children: [
-                          // 섹션 제목
-                          Row(
-                            children: [
-                              Container(
-                                padding: EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.schedule_rounded,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Text(
-                                '날짜 및 시간',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1F2937),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          SizedBox(height: 16),
-
-                          // 하루종일 토글
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: SwitchListTile(
-                              value: _isAllDay,
-                              onChanged: (value) {
-                                setState(() {
-                                  _isAllDay = value;
-                                });
-                              },
-                              title: Row(
-                                children: [
-                                  Container(
-                                    padding: EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: _isAllDay
-                                          ? Color(0xFF8B5CF6).withOpacity(0.1)
-                                          : Color(0xFF6B7280).withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(
-                                      Icons.event_rounded,
-                                      color: _isAllDay
-                                          ? Color(0xFF8B5CF6)
-                                          : Color(0xFF6B7280),
-                                      size: 16,
-                                    ),
-                                  ),
-                                  SizedBox(width: 12),
-                                  Text(
-                                    '하루종일',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF374151),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              subtitle: Text(
-                                _isAllDay ? '시간을 설정하지 않습니다' : '시작 시간과 종료 시간을 설정합니다',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF6B7280),
-                                ),
-                              ),
-                              activeColor: Color(0xFF8B5CF6),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                            ),
-                          ),
-
-                          SizedBox(height: 12),
-
-                          // 날짜 선택
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: ListTile(
-                              leading: Container(
-                                padding: EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Color(0xFFEC4899).withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.calendar_today_rounded,
-                                  color: Color(0xFFEC4899),
-                                  size: 20,
-                                ),
-                              ),
-                              title: Text(
-                                '날짜',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF374151),
-                                ),
-                              ),
-                              subtitle: Text(
-                                utils.DateUtils.formatDate(_selectedDate),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  color: Color(0xFF6366F1),
-                                ),
-                              ),
-                              trailing: Icon(
-                                Icons.chevron_right_rounded,
-                                color: Color(0xFF9CA3AF),
-                              ),
-                              onTap: _selectDate,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                            ),
-                          ),
-
-                          // 시간 선택 (하루종일이 아닐 때만 표시)
-                          if (!_isAllDay) ...[
-                            SizedBox(height: 12),
-
-                            // 시작 시간
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: ListTile(
-                                leading: Container(
-                                  padding: EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Color(0xFF10B981).withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(
-                                    Icons.play_arrow_rounded,
-                                    color: Color(0xFF10B981),
-                                    size: 20,
-                                  ),
-                                ),
-                                title: Text(
-                                  '시작 시간',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF374151),
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  _formatTime(_startTime),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    color: Color(0xFF6366F1),
-                                  ),
-                                ),
-                                trailing: Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: Color(0xFF9CA3AF),
-                                ),
-                                onTap: () => _selectTime(true),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              ),
-                            ),
-
-                            SizedBox(height: 12),
-
-                            // 종료 시간
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: ListTile(
-                                leading: Container(
-                                  padding: EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Color(0xFFEF4444).withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(
-                                    Icons.stop_rounded,
-                                    color: Color(0xFFEF4444),
-                                    size: 20,
-                                  ),
-                                ),
-                                title: Text(
-                                  '종료 시간',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF374151),
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  _formatTime(_endTime),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    color: Color(0xFF6366F1),
-                                  ),
-                                ),
-                                trailing: Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: Color(0xFF9CA3AF),
-                                ),
-                                onTap: () => _selectTime(false),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
-              ),
-            ),
 
-            // 하단 버튼들
-            Container(
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(24),
-                  bottomRight: Radius.circular(24),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      height: 48,
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: TextButton.styleFrom(
-                          backgroundColor: Color(0xFFE5E7EB),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Text(
-                          '취소',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF6B7280),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0xFF6366F1).withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: ElevatedButton(
-                        onPressed: _saveSchedule,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              isEditing ? Icons.check_rounded : Icons.add_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              isEditing ? '수정하기' : '추가하기',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                // 고정 하단 버튼
+                _buildBottomButtons(isEditing),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  // 날짜 선택
-  Future<void> _selectDate() async {
+  Widget _buildHeader(bool isEditing) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              isEditing ? Icons.edit_rounded : Icons.add_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              isEditing ? '일정 수정' : '새 일정',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          if (_isLoading)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            ),
+          SizedBox(width: 8),
+          IconButton(
+            onPressed: _isLoading ? null : () => Navigator.pop(context),
+            icon: Icon(Icons.close, color: Colors.white, size: 20),
+            constraints: BoxConstraints(minWidth: 32, minHeight: 32),
+            padding: EdgeInsets.zero,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    required Color color,
+    int maxLines = 1,
+    bool autofocus = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF374151),
+          ),
+        ),
+        SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              hintText: hint,
+              prefixIcon: Icon(icon, color: color, size: 20),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              hintStyle: TextStyle(color: Colors.grey[500]),
+            ),
+            maxLines: maxLines,
+            autofocus: autofocus,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF1F2937),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateTimeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '날짜 및 시간',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF374151),
+          ),
+        ),
+        SizedBox(height: 8),
+
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: Column(
+            children: [
+              // 하루종일 토글
+              Row(
+                children: [
+                  Switch(
+                    value: _isAllDay,
+                    onChanged: (value) => setState(() => _isAllDay = value),
+                    activeColor: Color(0xFF6366F1),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    '하루종일',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 16),
+
+              // 시작일시 섹션
+              _buildDateTimeInput(
+                title: '시작',
+                date: _startDate,
+                time: _startTime,
+                color: Color(0xFF10B981),
+                onDateTap: () => _selectDate(isStart: true),
+                onTimeTap: () => _selectTime(isStart: true),
+              ),
+
+              SizedBox(height: 16),
+
+              // 종료일시 섹션
+              _buildDateTimeInput(
+                title: '종료',
+                date: _endDate,
+                time: _endTime,
+                color: Color(0xFFEF4444),
+                onDateTap: () => _selectDate(isStart: false),
+                onTimeTap: () => _selectTime(isStart: false),
+              ),
+
+
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateTimeInput({
+    required String title,
+    required DateTime date,
+    required TimeOfDay time,
+    required Color color,
+    required VoidCallback onDateTap,
+    required VoidCallback onTimeTap,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              title == '시작' ? Icons.play_arrow : Icons.stop,
+              size: 16,
+              color: color,
+            ),
+            SizedBox(width: 4),
+            Text(
+              '$title 일시',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 8),
+
+        Row(
+          children: [
+            // 날짜 선택 버튼
+            Expanded(
+              flex: 2,
+              child: InkWell(
+                onTap: onDateTap,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 16, color: color),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _formatKoreanDate(date),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // 시간 선택 버튼 (하루종일이 아닐 때만)
+            if (!_isAllDay) ...[
+              SizedBox(width: 8),
+              Expanded(
+                child: InkWell(
+                  onTap: onTimeTap,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.access_time, size: 16, color: color),
+                        SizedBox(width: 4),
+                        Text(
+                          _formatTime(time),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+
+
+  Widget _buildBottomButtons(bool isEditing) {
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _isLoading ? null : () => Navigator.pop(context),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: Colors.grey[400]!),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: Text(
+                '취소',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _saveSchedule,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Color(0xFF6366F1),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.symmetric(vertical: 12),
+                elevation: 2,
+              ),
+              child: _isLoading
+                  ? SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+                  : Text(
+                isEditing ? '수정' : '저장',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🔧 유틸리티 메서드들
+
+  String _formatKoreanDate(DateTime date) {
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    final weekday = weekdays[date.weekday % 7];
+    return '${date.month}월 ${date.day}일 ($weekday)';
+  }
+
+  String _formatTime(TimeOfDay time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
+  // 🎯 액션 메서드들
+
+  Future<void> _selectDate({required bool isStart}) async {
     final date = await showDatePicker(
       context: context,
-      initialDate: _selectedDate,
+      initialDate: isStart ? _startDate : _endDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Color(0xFF6366F1),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
 
     if (date != null) {
       setState(() {
-        _selectedDate = date;
-      });
-    }
-  }
-
-  // 시간 선택 (시작/종료 구분)
-  Future<void> _selectTime(bool isStartTime) async {
-    final initialTime = isStartTime ? _startTime : _endTime;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-    );
-
-    if (time != null) {
-      setState(() {
-        if (isStartTime) {
-          _startTime = time;
-          // 시작 시간이 종료 시간보다 늦으면 종료 시간을 1시간 뒤로 조정
-          final startMinutes = _startTime.hour * 60 + _startTime.minute;
-          final endMinutes = _endTime.hour * 60 + _endTime.minute;
-
-          if (startMinutes >= endMinutes) {
-            final newEndMinutes = (startMinutes + 60) % (24 * 60);
-            _endTime = TimeOfDay(
-              hour: newEndMinutes ~/ 60,
-              minute: newEndMinutes % 60,
-            );
+        if (isStart) {
+          _startDate = date;
+          // 시작일이 종료일보다 늦으면 종료일을 시작일로 맞춤
+          if (_endDate.isBefore(_startDate)) {
+            _endDate = _startDate;
           }
         } else {
-          _endTime = time;
-          // 종료 시간이 시작 시간보다 이르면 시작 시간을 1시간 앞으로 조정
-          final startMinutes = _startTime.hour * 60 + _startTime.minute;
-          final endMinutes = _endTime.hour * 60 + _endTime.minute;
-
-          if (endMinutes <= startMinutes) {
-            final newStartMinutes = (endMinutes - 60 + 24 * 60) % (24 * 60);
-            _startTime = TimeOfDay(
-              hour: newStartMinutes ~/ 60,
-              minute: newStartMinutes % 60,
-            );
+          _endDate = date;
+          // 종료일이 시작일보다 이르면 시작일을 종료일로 맞춤
+          if (_startDate.isAfter(_endDate)) {
+            _startDate = _endDate;
           }
         }
       });
     }
   }
 
-  // 시간 포맷팅
-  String _formatTime(TimeOfDay time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  Future<void> _selectTime({required bool isStart}) async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: isStart ? _startTime : _endTime,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Color(0xFF6366F1),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (time != null) {
+      setState(() {
+        if (isStart) {
+          _startTime = time;
+          // 같은 날이고 시작 시간이 종료 시간보다 늦으면 종료 시간을 1시간 뒤로 설정
+          if (_isSameDay(_startDate, _endDate) && _isTimeAfter(_startTime, _endTime)) {
+            _endTime = TimeOfDay(
+              hour: (_startTime.hour + 1) % 24,
+              minute: _startTime.minute,
+            );
+          }
+        } else {
+          _endTime = time;
+          // 같은 날이고 종료 시간이 시작 시간보다 이르면 다음 날로 처리
+          if (_isSameDay(_startDate, _endDate) && _isTimeAfter(_startTime, _endTime)) {
+            _endDate = _startDate.add(Duration(days: 1));
+          }
+        }
+      });
+    }
   }
 
-  // 일정 저장
-  void _saveSchedule() {
+
+
+  bool _isSameDay(DateTime date1, DateTime date2) {
+    return date1.year == date2.year &&
+        date1.month == date2.month &&
+        date1.day == date2.day;
+  }
+
+  bool _isTimeAfter(TimeOfDay time1, TimeOfDay time2) {
+    return time1.hour > time2.hour ||
+        (time1.hour == time2.hour && time1.minute > time2.minute);
+  }
+
+  // ✅ 핵심: 기존 Schedule 모델 형태로 변환해서 저장
+  Future<void> _saveSchedule() async {
     if (_titleController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('제목을 입력해주세요')),
-      );
+      _showErrorSnackBar('제목을 입력해주세요');
       return;
     }
 
-    DateTime scheduledAt;
-    DateTime? endTime;
+    setState(() => _isLoading = true);
 
-    if (_isAllDay) {
-      // 하루종일 일정
-      scheduledAt = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-      endTime = null;
-    } else {
-      // 시간 일정
-      scheduledAt = DateTime(
-        _selectedDate.year,
-        _selectedDate.month,
-        _selectedDate.day,
-        _startTime.hour,
-        _startTime.minute,
-      );
+    try {
+      DateTime scheduledAt; // 기존 모델의 시작 시간
+      DateTime? endTime;    // 기존 모델의 종료 시간
 
-      endTime = DateTime(
-        _selectedDate.year,
-        _selectedDate.month,
-        _selectedDate.day,
-        _endTime.hour,
-        _endTime.minute,
-      );
+      if (_isAllDay) {
+        // 하루종일 일정
+        scheduledAt = DateTime(_startDate.year, _startDate.month, _startDate.day);
 
-      // 종료 시간이 다음날로 넘어가는 경우 처리
-      if (endTime.isBefore(scheduledAt)) {
-        endTime = endTime.add(Duration(days: 1));
+        // 여러 날 하루종일 일정인지 확인
+        if (!_isSameDay(_startDate, _endDate)) {
+          endTime = DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
+        } else {
+          endTime = null; // 하루만인 경우 기존 방식대로 null
+        }
+      } else {
+        // 시간 일정
+        scheduledAt = DateTime(
+          _startDate.year,
+          _startDate.month,
+          _startDate.day,
+          _startTime.hour,
+          _startTime.minute,
+        );
+
+        endTime = DateTime(
+          _endDate.year,
+          _endDate.month,
+          _endDate.day,
+          _endTime.hour,
+          _endTime.minute,
+        );
+
+        // 시작 시간이 종료 시간보다 늦으면 에러
+        if (endTime.isBefore(scheduledAt)) {
+          _showErrorSnackBar('종료 시간이 시작 시간보다 이릅니다');
+          setState(() => _isLoading = false);
+          return;
+        }
       }
+
+      // ✅ 기존 Schedule 모델 형태로 생성
+      final schedule = Schedule(
+        id: widget.existingSchedule?.id ?? '',
+        title: _titleController.text.trim(),
+        memo: _memoController.text.trim(),
+        scheduledAt: scheduledAt,    // 기존 필드명
+        endTime: endTime,           // 기존 필드명
+        isAllDay: _isAllDay,
+        createdAt: widget.existingSchedule?.createdAt ?? DateTime.now(),
+        ownerColorValue: _selectedColor.value,
+      );
+
+      // Schedule 객체를 반환 (기존 코드와 호환)
+      Navigator.pop(context, schedule);
+    } catch (e) {
+      _showErrorSnackBar('오류가 발생했습니다: $e');
+      setState(() => _isLoading = false);
     }
+  }
 
-    final schedule = Schedule(
-      id: widget.existingSchedule?.id ?? '',
-      title: _titleController.text.trim(),
-      memo: _memoController.text.trim(),
-      scheduledAt: scheduledAt,
-      endTime: endTime,
-      isAllDay: _isAllDay,
-      createdAt: widget.existingSchedule?.createdAt ?? DateTime.now(),
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
     );
-
-    Navigator.pop(context, schedule);
   }
 }
 
@@ -738,6 +769,7 @@ Future<Schedule?> showScheduleFormDialog({
 }) {
   return showDialog<Schedule>(
     context: context,
+    barrierDismissible: false,
     builder: (context) => ScheduleFormDialog(
       selectedDate: selectedDate,
       existingSchedule: existingSchedule,

@@ -16,6 +16,9 @@ class ScheduleDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 🆕 사용자별 색상 가져오기
+    final Color primaryColor = _getScheduleColor();
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -45,23 +48,19 @@ class ScheduleDetailSheet extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: [
-                // 아이콘
+                // 🆕 사용자 색상 적용된 아이콘
                 Container(
                   padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: utils.DateUtils.isToday(schedule.scheduledAt)
-                          ? [Color(0xFF6366F1), Color(0xFF8B5CF6)]
-                          : [Color(0xFF64748B), Color(0xFF475569)],
+                      colors: [primaryColor, primaryColor.withOpacity(0.8)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: utils.DateUtils.isToday(schedule.scheduledAt)
-                            ? Color(0xFF6366F1).withOpacity(0.3)
-                            : Colors.black.withOpacity(0.1),
+                        color: primaryColor.withOpacity(0.3),
                         blurRadius: 8,
                         offset: Offset(0, 4),
                       ),
@@ -89,21 +88,26 @@ class ScheduleDetailSheet extends StatelessWidget {
                           color: Color(0xFF1F2937),
                         ),
                       ),
-                      SizedBox(height: 4),
-                      Row(
+                      SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
-                          // 상태 배지들
-                          if (schedule.isAllDay) ...[
+                          // 🆕 여러 날 일정 배지
+                          if (schedule.isMultiDay)
+                            _buildBadge('${schedule.durationInDays}일간', Color(0xFF3B82F6)),
+
+                          // 하루종일 배지
+                          if (schedule.isAllDay && !schedule.isMultiDay)
                             _buildBadge('하루종일', Color(0xFF8B5CF6)),
-                            SizedBox(width: 8),
-                          ],
-                          if (utils.DateUtils.isToday(schedule.scheduledAt) && !schedule.isAllDay) ...[
+
+                          // 오늘 배지
+                          if (utils.DateUtils.isToday(schedule.scheduledAt) && !schedule.isAllDay)
                             _buildBadge('오늘', Color(0xFF10B981)),
-                            SizedBox(width: 8),
-                          ],
-                          if (_isCurrentlyActive()) ...[
+
+                          // 진행 중 배지
+                          if (schedule.isCurrentlyActive)
                             _buildBadge('진행중', Color(0xFFEF4444)),
-                          ],
                         ],
                       ),
                     ],
@@ -126,23 +130,34 @@ class ScheduleDetailSheet extends StatelessWidget {
             ),
             child: Column(
               children: [
-                // 날짜 정보
+                // 🆕 날짜 정보 (여러 날 일정 지원)
                 _buildDetailRow(
                   Icons.calendar_today_rounded,
-                  '날짜',
-                  utils.DateUtils.formatDate(schedule.scheduledAt),
+                  schedule.isMultiDay ? '기간' : '날짜',
+                  schedule.isMultiDay ? schedule.dateRangeText : utils.DateUtils.formatDate(schedule.scheduledAt),
                   Color(0xFFEC4899),
                 ),
 
                 SizedBox(height: 16),
 
-                // 시간 정보
+                // 🆕 시간 정보 (개선됨)
                 _buildDetailRow(
                   schedule.isAllDay ? Icons.event_rounded : Icons.access_time_rounded,
                   '시간',
                   schedule.timeText,
                   Color(0xFF06B6D4),
                 ),
+
+                // 🆕 상세 일정 정보 (여러 날 시간 일정용)
+                if (schedule.isMultiDay && !schedule.isAllDay) ...[
+                  SizedBox(height: 16),
+                  _buildDetailRow(
+                    Icons.schedule_rounded,
+                    '상세 시간',
+                    _getDetailedTimeInfo(),
+                    Color(0xFF8B5CF6),
+                  ),
+                ],
 
                 if (schedule.memo.isNotEmpty) ...[
                   SizedBox(height: 16),
@@ -169,7 +184,7 @@ class ScheduleDetailSheet extends StatelessWidget {
 
           SizedBox(height: 32),
 
-          // 액션 버튼들
+          // 🆕 사용자 색상 적용된 액션 버튼들
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: Row(
@@ -180,14 +195,14 @@ class ScheduleDetailSheet extends StatelessWidget {
                     height: 50,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                        colors: [primaryColor, primaryColor.withOpacity(0.8)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Color(0xFF6366F1).withOpacity(0.3),
+                          color: primaryColor.withOpacity(0.3),
                           blurRadius: 8,
                           offset: Offset(0, 4),
                         ),
@@ -242,7 +257,7 @@ class ScheduleDetailSheet extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
-                        _showDeleteConfirmDialog(context);
+                        onDelete?.call();
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
@@ -299,6 +314,34 @@ class ScheduleDetailSheet extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  // 🆕 사용자별 색상 가져오기
+  Color _getScheduleColor() {
+    if (schedule.ownerColorValue != null) {
+      return Color(schedule.ownerColorValue!);
+    }
+
+    // 기본 색상 (오늘 일정은 특별 색상)
+    return utils.DateUtils.isToday(schedule.scheduledAt)
+        ? Color(0xFF6366F1)
+        : Color(0xFF64748B);
+  }
+
+  // 🆕 상세 시간 정보 (여러 날 시간 일정용)
+  String _getDetailedTimeInfo() {
+    if (!schedule.isMultiDay || schedule.isAllDay) return schedule.timeText;
+
+    final startDate = utils.DateUtils.formatDate(schedule.scheduledAt);
+    final startTime = '${schedule.scheduledAt.hour.toString().padLeft(2, '0')}:${schedule.scheduledAt.minute.toString().padLeft(2, '0')}';
+
+    if (schedule.endTime != null) {
+      final endDate = utils.DateUtils.formatDate(schedule.endTime!);
+      final endTime = '${schedule.endTime!.hour.toString().padLeft(2, '0')}:${schedule.endTime!.minute.toString().padLeft(2, '0')}';
+      return '$startDate $startTime ~ $endDate $endTime';
+    }
+
+    return '$startDate $startTime ~';
   }
 
   // 상세 정보 행
@@ -374,19 +417,6 @@ class ScheduleDetailSheet extends StatelessWidget {
     );
   }
 
-  // 현재 진행 중인지 확인
-  bool _isCurrentlyActive() {
-    if (schedule.isAllDay) {
-      return utils.DateUtils.isToday(schedule.scheduledAt);
-    }
-
-    final now = DateTime.now();
-    final startTime = schedule.startTime;
-    final endTime = schedule.actualEndTime;
-
-    return now.isAfter(startTime) && now.isBefore(endTime);
-  }
-
   // 아이콘 선택
   IconData _getScheduleIcon(String title) {
     final lowerTitle = title.toLowerCase();
@@ -408,45 +438,6 @@ class ScheduleDetailSheet extends StatelessWidget {
     } else {
       return Icons.event_rounded;
     }
-  }
-
-  // 삭제 확인 다이얼로그
-  void _showDeleteConfirmDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.warning_rounded, color: Color(0xFFEF4444)),
-            SizedBox(width: 12),
-            Text('일정 삭제'),
-          ],
-        ),
-        content: Text('${schedule.title} 일정을 삭제하시겠습니까?\n삭제된 일정은 복구할 수 없습니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              onDelete?.call();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFFEF4444),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text('삭제', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
   }
 }
 

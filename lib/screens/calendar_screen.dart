@@ -7,16 +7,22 @@ import '../widgets/schedule_form_dialog.dart';
 import '../utils/date_utils.dart' as utils;
 
 class CalendarScreen extends StatefulWidget {
+  // Key 추가 - main.dart에서 접근할 수 있도록
+  const CalendarScreen({Key? key}) : super(key: key);
+
   @override
-  _CalendarScreenState createState() => _CalendarScreenState();
+  CalendarScreenState createState() => CalendarScreenState(); // public으로 변경
 }
 
-class _CalendarScreenState extends State<CalendarScreen> {
+class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
   final FirestoreService _firestoreService = FirestoreService();
 
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+
+  // main.dart에서 접근할 수 있도록 getter 추가
+  DateTime? get selectedDay => _selectedDay;
 
   @override
   void initState() {
@@ -31,9 +37,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
       appBar: AppBar(
         title: Text('캘린더'),
         backgroundColor: Colors.transparent,
-        automaticallyImplyLeading: false, // 뒤로가기 버튼 제거
+        automaticallyImplyLeading: false,
         actions: [
-          // 오늘로 이동 버튼
+          // 오늘로 이동 버튼만 남기기
           IconButton(
             onPressed: () {
               setState(() {
@@ -104,6 +110,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       lastDay: DateTime.utc(2030, 12, 31),
                       focusedDay: _focusedDay,
                       calendarFormat: _calendarFormat,
+                      locale: 'ko_KR', // 한국어 설정
                       selectedDayPredicate: (day) {
                         return isSameDay(_selectedDay, day);
                       },
@@ -120,12 +127,35 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       },
                       eventLoader: (day) {
                         return allSchedules.where((schedule) {
-                          return isSameDay(schedule.scheduledAt, day);
+                          return schedule.includesDate(day);
                         }).toList();
                       },
+                      calendarBuilders: CalendarBuilders<Schedule>(
+                        markerBuilder: (context, date, events) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: events.map((s) {
+                              // ownerColorValue가 null일 수 있으니 기본색 방어
+                              final color = s.ownerColorValue != null
+                                  ? Color(s.ownerColorValue!)
+                                  : Colors.grey;
+
+                              return Container(
+                                width: 6,
+                                height: 6,
+                                margin: EdgeInsets.symmetric(horizontal: 1),
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
                       calendarStyle: CalendarStyle(
                         outsideDaysVisible: false,
-                        markersMaxCount: 3,
+                        markersMaxCount: 4,
                         markerDecoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
@@ -283,6 +313,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               ],
                             ),
                           ),
+                          // 날짜 헤더에서 + 버튼 제거 (FAB만 사용)
                         ],
                       ),
 
@@ -392,12 +423,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                       ),
                                       SizedBox(height: 8),
                                       Text(
-                                        '새로운 일정을 추가해보세요!',
+                                        '하단 + 버튼으로 일정을 추가해보세요!',
                                         style: TextStyle(
                                           fontSize: 14,
                                           color: Color(0xFF9CA3AF),
                                         ),
                                       ),
+                                      // 빈 일정 화면에서 일정 추가 버튼 제거
                                     ],
                                   ),
                                 ),
@@ -442,53 +474,84 @@ class _CalendarScreenState extends State<CalendarScreen> {
         await _firestoreService.updateSchedule(schedule.id, editedSchedule);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('일정이 수정되었습니다!'),
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('일정이 수정되었습니다!'),
+              ],
+            ),
             backgroundColor: Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('일정 수정에 실패했습니다: $e'),
+            content: Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.white),
+                SizedBox(width: 8),
+                Text('일정 수정에 실패했습니다: $e'),
+              ],
+            ),
             backgroundColor: Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
     }
   }
 
-  // 일정 삭제
+  // 일정 삭제 - 간단한 확인만
   void _deleteSchedule(Schedule schedule) async {
-    try {
-      await _firestoreService.deleteSchedule(schedule.id);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('일정이 삭제되었습니다!'),
-          backgroundColor: Color(0xFF10B981),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('일정 삭제에 실패했습니다: $e'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
-    }
-  }
-
-  // 일정 추가 다이얼로그 (새로운 위젯 사용)
-  void _showAddScheduleDialog() async {
-    final schedule = await showScheduleFormDialog(
+    // 간단한 삭제 확인 다이얼로그
+    final confirmed = await showDialog<bool>(
       context: context,
-      selectedDate: _selectedDay,
+      builder: (context) => AlertDialog(
+        title: Text('일정 삭제'),
+        content: Text('"${schedule.title}" 일정을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('삭제', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
 
-    if (schedule != null) {
-      await _firestoreService.addSchedule(schedule);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('일정이 추가되었습니다!')),
-      );
+    if (confirmed == true) {
+      try {
+        await _firestoreService.deleteSchedule(schedule.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('일정이 삭제되었습니다'),
+            backgroundColor: Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('삭제 실패: $e'),
+            backgroundColor: Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     }
   }
+
+// ❌ 일정 추가 다이얼로그 제거 - main.dart에서만 처리
+// void _showAddScheduleDialog() async {
+//   // 이 메서드는 더 이상 사용하지 않음
+// }
 }
