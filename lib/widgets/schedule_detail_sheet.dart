@@ -90,62 +90,68 @@ class ScheduleDetailSheet extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 액션 버튼들
-                Row(
+                Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 🔧 수정 버튼 (고정 색상)
-                    Expanded(
-                      child: _buildActionButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          onEdit?.call();
-                        },
-                        icon: Icons.edit_rounded,
-                        label: '수정',
-                        color: Color(0xFF6366F1), // 🔧 고정 색상 (인디고)
+                    // 🔧 수정/삭제 버튼 (있을 때만 표시)
+                    if (onEdit != null || onDelete != null) ...[
+                      Row(
+                        children: [
+                          if (onEdit != null) ...[
+                            Expanded(
+                              child: _buildActionButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  onEdit!(); // 🔧 .call() → !로 수정
+                                },
+                                icon: Icons.edit_rounded,
+                                label: '수정',
+                                color: Color(0xFF6366F1),
+                              ),
+                            ),
+                            if (onDelete != null) SizedBox(width: 12),
+                          ],
+                          if (onDelete != null) ...[
+                            Expanded(
+                              child: _buildActionButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  onDelete!(); // 🔧 .call() → !로 수정
+                                },
+                                icon: Icons.delete_rounded,
+                                label: '삭제',
+                                color: Color(0xFFEF4444),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                    ),
+                      SizedBox(height: 12),
+                    ],
 
-                    SizedBox(width: 12),
-
-                    // 삭제 버튼 (빨간색 고정)
-                    Expanded(
-                      child: _buildActionButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          onDelete?.call();
-                        },
-                        icon: Icons.delete_rounded,
-                        label: '삭제',
-                        color: Color(0xFFEF4444), // 빨간색 고정
+                    // 🔧 닫기 버튼 (항상 표시)
+                    Container(
+                      width: double.infinity,
+                      height: 44,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          backgroundColor: Color(0xFFF3F4F6),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          '닫기',
+                          style: TextStyle(
+                            color: Color(0xFF6B7280),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
                       ),
                     ),
                   ],
-                ),
-
-                SizedBox(height: 12),
-
-                // 닫기 버튼
-                Container(
-                  width: double.infinity,
-                  height: 44, // 🔧 50 → 44로 줄임
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: TextButton.styleFrom(
-                      backgroundColor: Color(0xFFF3F4F6),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      '닫기',
-                      style: TextStyle(
-                        color: Color(0xFF6B7280),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15, // 🔧 16 → 15로 줄임
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),

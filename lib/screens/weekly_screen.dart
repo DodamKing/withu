@@ -27,9 +27,9 @@ class _WeeklyScreenState extends State<WeeklyScreen> {
     return _weekStart.add(Duration(days: 6));
   }
 
-  static const double _hourHeight = 60; // 🆕 40 → 60으로 증가
-  final int _startHour = 9;
-  final int _endHour   = 22;
+  static const double _hourHeight = 60;
+  final int _startHour = 6;   // 🔧 9 → 6시로 확장
+  final int _endHour   = 23;  // 🔧 22 → 23시로 확장
 
   @override
   void initState() {
@@ -313,9 +313,9 @@ class _WeeklyScreenState extends State<WeeklyScreen> {
 
                 SizedBox(height: 16),
 
-                // 시간대별 타임라인 (9시 ~ 22시)
-                ...List.generate(14, (hourIndex) {
-                  final hour = 9 + hourIndex;
+                // 시간대별 타임라인 (6시 ~ 23시)
+                ...List.generate(18, (hourIndex) { // 🔧 14 → 18시간으로 확장
+                  final hour = 6 + hourIndex; // 🔧 9 → 6시 시작
                   return _buildTimeSlot(hour, schedules);
                 }),
               ],
@@ -509,17 +509,13 @@ class _WeeklyScreenState extends State<WeeklyScreen> {
     );
   }
 
-  // 🆕 일정 상세 보기
+  // 일정 상세 보기 (조회 전용 - 버튼 없음)
   void _showScheduleDetail(Schedule schedule) {
     showScheduleDetailSheet(
       context: context,
       schedule: schedule,
-      onEdit: () {
-        // 편집 콜백 (필요시 구현)
-      },
-      onDelete: () {
-        // 삭제 콜백 (필요시 구현)
-      },
+      onEdit: null,    // 버튼 없애기
+      onDelete: null,  // 버튼 없애기
     );
   }
 

@@ -44,16 +44,15 @@ class HomeScreen extends StatelessWidget {
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment(-0.3, -1),
-            end: Alignment(0.3, 1),
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
-              Color(0xFFE8F1FA), // 아주 연한 스카이 블루
-              Color(0xFFB8DAF2), // 연한 블루
-              Color(0xFFA0E0C0), // 연두빛을 살짝 섞어
-              Color(0xFFFAC8C9), // 연한 핑크
-              Color(0xFFDDE2E6), // 연회색
+              Color(0xFFE0E7FF),  // 연한 보라 (확실히 보임)
+              Color(0xFFDBEAFE),  // 연한 파랑 (확실히 보임)
+              Color(0xFFDDD6FE),  // 연한 라벤더 (확실히 보임)
+              Color(0xFFE5E7EB),  // 연한 회색 (확실히 보임)
             ],
-            stops: [0.0, 0.3, 0.5, 0.7, 1.0],
+            stops: [0.0, 0.4, 0.7, 1.0],
           ),
         ),
         child: SafeArea(
@@ -131,10 +130,11 @@ class HomeScreen extends StatelessWidget {
                   children: [
                     Text(
                       '오늘의 일정',
-                      style: TextStyle(
+                      style: GoogleFonts.inter(
                         fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700, // 700으로 더 진하게
                         color: Color(0xFF1F2937),
+                        letterSpacing: -0.5, // 글자 간격 조정
                       ),
                     ),
                     StreamBuilder<List<Schedule>>(
