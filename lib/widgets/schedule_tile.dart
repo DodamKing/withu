@@ -30,9 +30,7 @@ class ScheduleTile extends StatelessWidget {
       margin: EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: isToday
-              ? [baseColor.withOpacity(0.15), baseColor.withOpacity(0.25)]
-              : [baseColor.withOpacity(0.05), baseColor.withOpacity(0.1)],
+          colors: [baseColor.withOpacity(0.45), baseColor.withOpacity(0.65)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -165,9 +163,7 @@ class ScheduleTile extends StatelessWidget {
                           Container(
                             padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4), // 🔧 패딩 줄임
                             decoration: BoxDecoration(
-                              color: isToday
-                                  ? baseColor.withOpacity(0.15)  // 🔧 사용자 색상으로 통일
-                                  : Color(0xFFF3F4F6),
+                              color: Color(0xFFF3F4F6),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(

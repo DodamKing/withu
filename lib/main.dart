@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // kDebugMode 추가
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/calendar_screen.dart';
 import 'screens/weekly_screen.dart';
+import 'screens/notification_test_screen.dart'; // 테스트 화면만 추가
 import 'widgets/schedule_form_dialog.dart';
 import 'services/firestore_service.dart';
 
@@ -122,7 +124,36 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
-      body: _screens[_selectedIndex],
+      body: Stack(
+        children: [
+          // 기존 화면들
+          _screens[_selectedIndex],
+
+          // 🔧 디버그 모드에서만 보이는 테스트 버튼 (우상단 고정)
+          if (kDebugMode)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              right: 16,
+              child: SafeArea(
+                child: FloatingActionButton.small(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => NotificationTestScreen(),
+                      ),
+                    );
+                  },
+                  backgroundColor: Colors.red[400], // 눈에 잘 띄게 빨간색
+                  child: Icon(Icons.bug_report, size: 20),
+                  tooltip: '알림 테스트',
+                  heroTag: "debug_button", // 충돌 방지
+                ),
+              ),
+            ),
+        ],
+      ),
+
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -196,7 +227,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
 
-      // 🎯 스마트 FAB - 화면별 맞춤 동작
+      // 🎯 기존 스마트 FAB - 그대로 유지
       floatingActionButton: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -221,12 +252,13 @@ class _MainScreenState extends State<MainScreen> {
             Icons.add_rounded,
             size: 28,
           ),
+          heroTag: "main_fab", // 충돌 방지
         ),
       ),
     );
   }
 
-  // 🎯 스마트 일정 추가 다이얼로그
+  // 🎯 기존 메서드들 그대로 유지
   void _showAddScheduleDialog() async {
     // 현재 화면에 따라 다른 기본 날짜 설정
     DateTime? selectedDate = _getSelectedDateForCurrentScreen();
@@ -275,7 +307,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // 🎯 현재 화면에 맞는 선택된 날짜 가져오기
   DateTime? _getSelectedDateForCurrentScreen() {
     switch (_selectedIndex) {
       case 0: // 홈 화면
@@ -297,7 +328,6 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // 🎯 화면별 맞춤 성공 메시지
   void _showSuccessMessage() {
     String message = '일정이 추가되었습니다!';
     String actionText = '확인';
