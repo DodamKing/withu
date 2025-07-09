@@ -239,7 +239,7 @@ class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
                           ),
                         ),
                         titleTextStyle: TextStyle(
-                          fontSize: 20,
+                          fontSize: MediaQuery.of(context).size.width * 0.055, // 화면 너비의 5.5%
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1F2937),
                         ),

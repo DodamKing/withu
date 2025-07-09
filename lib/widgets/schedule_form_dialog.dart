@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/schedule.dart';
@@ -377,7 +378,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
                 time: _startTime,
                 color: Color(0xFF10B981),
                 onDateTap: () => _selectDate(isStart: true),
-                onTimeTap: () => _selectTime(isStart: true),
+                onTimeChanged: (time) => setState(() => _startTime = time),
               ),
 
               SizedBox(height: 16),
@@ -389,10 +390,8 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
                 time: _endTime,
                 color: Color(0xFFEF4444),
                 onDateTap: () => _selectDate(isStart: false),
-                onTimeTap: () => _selectTime(isStart: false),
+                onTimeChanged: (time) => setState(() => _endTime = time),
               ),
-
-
             ],
           ),
         ),
@@ -406,7 +405,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     required TimeOfDay time,
     required Color color,
     required VoidCallback onDateTap,
-    required VoidCallback onTimeTap,
+    required Function(TimeOfDay) onTimeChanged,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -466,13 +465,12 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
               ),
             ),
 
-            // 시간 선택 버튼 (하루종일이 아닐 때만)
+            // 시간 선택 (하루종일이 아닐 때만)
             if (!_isAllDay) ...[
               SizedBox(width: 8),
               Expanded(
-                child: InkWell(
-                  onTap: onTimeTap,
-                  borderRadius: BorderRadius.circular(10),
+                child: GestureDetector(
+                  onTap: () => _showTimeScrollPicker(time, onTimeChanged),
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     decoration: BoxDecoration(
@@ -505,7 +503,19 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     );
   }
 
-
+  // 🎯 스크롤 휠 시간 선택 다이얼로그
+  void _showTimeScrollPicker(TimeOfDay currentTime, Function(TimeOfDay) onTimeChanged) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return TimeScrollPickerModal(
+          initialTime: currentTime,
+          onTimeChanged: onTimeChanged,
+        );
+      },
+    );
+  }
 
   Widget _buildBottomButtons(bool isEditing) {
     return Container(
@@ -611,13 +621,11 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       setState(() {
         if (isStart) {
           _startDate = date;
-          // 시작일이 종료일보다 늦으면 종료일을 시작일로 맞춤
           if (_endDate.isBefore(_startDate)) {
             _endDate = _startDate;
           }
         } else {
           _endDate = date;
-          // 종료일이 시작일보다 이르면 시작일을 종료일로 맞춤
           if (_startDate.isAfter(_endDate)) {
             _startDate = _endDate;
           }
@@ -625,49 +633,6 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       });
     }
   }
-
-  Future<void> _selectTime({required bool isStart}) async {
-    final time = await showTimePicker(
-      context: context,
-      initialTime: isStart ? _startTime : _endTime,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: Color(0xFF6366F1),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (time != null) {
-      setState(() {
-        if (isStart) {
-          _startTime = time;
-          // 같은 날이고 시작 시간이 종료 시간보다 늦으면 종료 시간을 1시간 뒤로 설정
-          if (_isSameDay(_startDate, _endDate) && _isTimeAfter(_startTime, _endTime)) {
-            _endTime = TimeOfDay(
-              hour: (_startTime.hour + 1) % 24,
-              minute: _startTime.minute,
-            );
-          }
-        } else {
-          _endTime = time;
-          // 같은 날이고 종료 시간이 시작 시간보다 이르면 다음 날로 처리
-          if (_isSameDay(_startDate, _endDate) && _isTimeAfter(_startTime, _endTime)) {
-            _endDate = _startDate.add(Duration(days: 1));
-          }
-        }
-      });
-    }
-  }
-
-
 
   bool _isSameDay(DateTime date1, DateTime date2) {
     return date1.year == date2.year &&
@@ -756,6 +721,180 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+}
+
+// 🎯 스크롤 휠 시간 선택 모달
+class TimeScrollPickerModal extends StatefulWidget {
+  final TimeOfDay initialTime;
+  final Function(TimeOfDay) onTimeChanged;
+
+  const TimeScrollPickerModal({
+    Key? key,
+    required this.initialTime,
+    required this.onTimeChanged,
+  }) : super(key: key);
+
+  @override
+  _TimeScrollPickerModalState createState() => _TimeScrollPickerModalState();
+}
+
+class _TimeScrollPickerModalState extends State<TimeScrollPickerModal> {
+  late int selectedHour;
+  late int selectedMinute;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedHour = widget.initialTime.hour;
+    selectedMinute = widget.initialTime.minute;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 300,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // 헤더
+          Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Color(0xFF6366F1),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.access_time, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '시간 선택',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    widget.onTimeChanged(TimeOfDay(hour: selectedHour, minute: selectedMinute));
+                    Navigator.pop(context);
+                  },
+                  child: Text(
+                    '완료',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 스크롤 휠
+          Expanded(
+            child: Row(
+              children: [
+                // 시간 선택
+                Expanded(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text(
+                          '시간',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF374151),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: CupertinoPicker(
+                          itemExtent: 50,
+                          looping: true,
+                          scrollController: FixedExtentScrollController(
+                            initialItem: selectedHour,
+                          ),
+                          onSelectedItemChanged: (int index) {
+                            setState(() => selectedHour = index);
+                          },
+                          children: List.generate(24, (index) =>
+                              Center(
+                                child: Text(
+                                  '${index.toString().padLeft(2, '0')}',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // 구분선
+                Container(
+                  width: 1,
+                  height: 100,
+                  color: Colors.grey[300],
+                ),
+
+                // 분 선택 (15분 단위)
+                Expanded(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text(
+                          '분',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF374151),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: CupertinoPicker(
+                          itemExtent: 50,
+                          looping: true,
+                          scrollController: FixedExtentScrollController(
+                            initialItem: selectedMinute,
+                          ),
+                          onSelectedItemChanged: (int index) {
+                            setState(() => selectedMinute = index);
+                          },
+                          children: List.generate(60, (index) =>
+                              Center(
+                                child: Text(
+                                  '${index.toString().padLeft(2, '0')}',
+                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
