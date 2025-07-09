@@ -5,7 +5,7 @@ import '../services/firestore_service.dart';
 import '../widgets/schedule_tile.dart';
 import '../widgets/schedule_form_dialog.dart';
 import '../utils/date_utils.dart' as utils;
-import 'calendar_screen.dart';
+import '../services/schedule_action_service.dart';
 
 class HomeScreen extends StatelessWidget {
   final FirestoreService _firestoreService = FirestoreService();
@@ -327,8 +327,8 @@ class HomeScreen extends StatelessWidget {
                           final schedule = schedules[index];
                           return ScheduleTile(
                             schedule: schedule,
-                            onEdit: () => _editSchedule(context, schedule),
-                            onDelete: () => _deleteSchedule(context, schedule),
+                            onEdit: () => ScheduleActionService.editSchedule(context, schedule),
+                            onDelete: () => ScheduleActionService.deleteSchedule(context, schedule),
                           );
                         },
                       );
@@ -341,52 +341,5 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  // 일정 수정
-  void _editSchedule(BuildContext context, Schedule schedule) async {
-    final editedSchedule = await showScheduleFormDialog(
-      context: context,
-      existingSchedule: schedule,
-    );
-
-    if (editedSchedule != null) {
-      try {
-        await _firestoreService.updateSchedule(schedule.id, editedSchedule);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('일정이 수정되었습니다!'),
-            backgroundColor: Color(0xFF10B981),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('일정 수정에 실패했습니다: $e'),
-            backgroundColor: Color(0xFFEF4444),
-          ),
-        );
-      }
-    }
-  }
-
-  // 일정 삭제
-  void _deleteSchedule(BuildContext context, Schedule schedule) async {
-    try {
-      await _firestoreService.deleteSchedule(schedule.id);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('일정이 삭제되었습니다!'),
-          backgroundColor: Color(0xFF10B981),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('일정 삭제에 실패했습니다: $e'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
-    }
   }
 }

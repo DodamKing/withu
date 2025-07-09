@@ -22,6 +22,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
   final _titleController = TextEditingController();
   final _memoController = TextEditingController();
   final _scrollController = ScrollController();
+  final _formKey = GlobalKey<FormState>(); // 🔧 폼 키 추가
 
   // 시작일시 관련
   late DateTime _startDate;
@@ -35,6 +36,22 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
   bool _isLoading = false;
 
   Color _selectedColor = Colors.blueAccent;
+
+  // 🔔 알림 관련 새 변수들
+  bool _hasNotification = false;
+  int _notificationMinutes = 10;
+
+  // 알림 시간 옵션들
+  final List<Map<String, dynamic>> _notificationOptions = [
+    {'label': '정시', 'value': 0},
+    {'label': '5분 전', 'value': 5},
+    {'label': '10분 전', 'value': 10},
+    {'label': '15분 전', 'value': 15},
+    {'label': '30분 전', 'value': 30},
+    {'label': '1시간 전', 'value': 60},
+    {'label': '2시간 전', 'value': 120},
+    {'label': '1일 전', 'value': 1440},
+  ];
 
   @override
   void initState() {
@@ -53,6 +70,10 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       _titleController.text = schedule.title;
       _memoController.text = schedule.memo;
       _isAllDay = schedule.isAllDay;
+
+      // 🔔 알림 설정 불러오기
+      _hasNotification = schedule.hasNotification;
+      _notificationMinutes = schedule.notificationMinutes;
 
       // 시작일시
       _startDate = DateTime(
@@ -92,6 +113,10 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       _startTime = TimeOfDay(hour: now.hour, minute: 0);
       _endTime = TimeOfDay(hour: (now.hour + 1) % 24, minute: 0);
       _isAllDay = false;
+
+      // 🔔 새 일정 기본값: 알림 꺼짐, 10분 전
+      _hasNotification = false;
+      _notificationMinutes = 10;
     }
   }
 
@@ -106,118 +131,312 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingSchedule != null;
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final screenHeight = MediaQuery.of(context).size.height;
 
-    return Material(
-      color: Colors.black54,
-      child: SafeArea(
-        child: Center(
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.9,
-            constraints: BoxConstraints(
-              maxHeight: screenHeight * 0.85,
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(), // 빈 공간 터치 시 키보드 숨김
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.9,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+          minHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        margin: EdgeInsets.symmetric(vertical: 40),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 20,
+              offset: Offset(0, 10),
             ),
-            margin: EdgeInsets.only(
-              bottom: keyboardHeight > 0 ? keyboardHeight + 20 : 0,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 20,
-                  offset: Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 헤더
-                _buildHeader(isEditing),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 헤더
+            _buildHeader(isEditing),
 
-                // 스크롤 가능한 폼
-                Flexible(
-                  child: SingleChildScrollView(
-                    controller: _scrollController,
-                    padding: EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 제목 입력
-                        _buildInputField(
-                          controller: _titleController,
-                          label: '제목',
-                          hint: '일정 제목을 입력하세요',
-                          icon: Icons.title,
-                          color: Color(0xFF6366F1),
-                          autofocus: true,
-                        ),
-
-                        SizedBox(height: 20),
-
-                        // 날짜 및 시간 섹션
-                        _buildDateTimeSection(),
-
-                        Text('일정 색상 선택',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)
-                        ),
-                        SizedBox(height: 8),
-
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            Colors.blueAccent,
-                            Colors.greenAccent,
-                            Colors.orangeAccent,
-                            Colors.pinkAccent,
-                            Colors.purpleAccent,
-                          ].map((color) {
-                            final isSelected = _selectedColor.value == color.value;
-                            return GestureDetector(
-                              onTap: () => setState(() => _selectedColor = color),
-                              child: Container(
-                                width: 32, height: 32,
-                                decoration: BoxDecoration(
-                                  color: color,
-                                  shape: BoxShape.circle,
-                                  border: isSelected
-                                      ? Border.all(width: 2, color: Colors.black)
-                                      : null,
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-
-                        SizedBox(height: 20),
-
-                        // 메모 입력
-                        _buildInputField(
-                          controller: _memoController,
-                          label: '메모 (선택사항)',
-                          hint: '추가 설명을 입력하세요',
-                          icon: Icons.note,
-                          color: Color(0xFF10B981),
-                          maxLines: 3,
-                        ),
-
-                        SizedBox(height: 80), // 버튼 영역 확보
-                      ],
+            // 📝 폼 영역 - 키보드 인식을 위해 구조 수정
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 제목 입력 - 🔧 TextField를 TextFormField로 변경
+                    _buildInputField(
+                      controller: _titleController,
+                      label: '제목',
+                      hint: '일정 제목을 입력하세요',
+                      icon: Icons.title,
+                      color: Color(0xFF6366F1),
+                      autofocus: true, // 자동 포커스
                     ),
-                  ),
-                ),
 
-                // 고정 하단 버튼
-                _buildBottomButtons(isEditing),
-              ],
+                    SizedBox(height: 16),
+
+                    // 날짜 및 시간 섹션
+                    _buildDateTimeSection(),
+
+                    SizedBox(height: 16),
+
+                    // 알림 설정 섹션
+                    _buildNotificationSection(),
+
+                    SizedBox(height: 16),
+
+                    // 색상 선택
+                    Text('일정 색상 선택',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)
+                    ),
+                    SizedBox(height: 8),
+
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        Colors.blueAccent,
+                        Colors.greenAccent,
+                        Colors.orangeAccent,
+                        Colors.pinkAccent,
+                        Colors.purpleAccent,
+                      ].map((color) {
+                        final isSelected = _selectedColor.value == color.value;
+                        return GestureDetector(
+                          onTap: () => setState(() => _selectedColor = color),
+                          child: Container(
+                            width: 32, height: 32,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: isSelected
+                                  ? Border.all(width: 2, color: Colors.black)
+                                  : null,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+
+                    SizedBox(height: 16),
+
+                    // 메모 입력 - 🔧 TextField를 TextFormField로 변경
+                    _buildInputField(
+                      controller: _memoController,
+                      label: '메모 (선택사항)',
+                      hint: '추가 설명을 입력하세요',
+                      icon: Icons.note,
+                      color: Color(0xFF10B981),
+                      maxLines: 3,
+                    ),
+
+                    SizedBox(height: 20),
+                  ],
+                ),
+              ),
             ),
-          ),
+
+            // 고정 하단 버튼
+            _buildBottomButtons(isEditing),
+          ],
         ),
       ),
     );
+  }
+
+  // 🔧 색상 선택 섹션 분리
+  Widget _buildColorSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '일정 색상 선택',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF374151),
+          ),
+        ),
+        SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            Colors.blueAccent,
+            Colors.greenAccent,
+            Colors.orangeAccent,
+            Colors.pinkAccent,
+            Colors.purpleAccent,
+          ].map((color) {
+            final isSelected = _selectedColor.value == color.value;
+            return GestureDetector(
+              onTap: () => setState(() => _selectedColor = color),
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: isSelected
+                      ? Border.all(width: 2, color: Colors.black)
+                      : null,
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  // 🔔 알림 설정 섹션
+  Widget _buildNotificationSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '알림 설정',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF374151),
+          ),
+        ),
+        SizedBox(height: 8),
+
+        Container(
+          padding: EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.amber[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.amber[200]!),
+          ),
+          child: Column(
+            children: [
+              // 알림 켜기/끄기 토글
+              Row(
+                children: [
+                  Icon(
+                    _hasNotification ? Icons.notifications_active : Icons.notifications_off,
+                    color: _hasNotification ? Colors.amber[700] : Colors.grey[500],
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '알림 받기',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF374151),
+                      ),
+                    ),
+                  ),
+                  Switch(
+                    value: _hasNotification,
+                    onChanged: (value) => setState(() => _hasNotification = value),
+                    activeColor: Colors.amber[700],
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ],
+              ),
+
+              // 알림 시간 선택 (알림이 켜져있을 때만)
+              if (_hasNotification) ...[
+                SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Icon(
+                      Icons.schedule,
+                      color: Colors.amber[700],
+                      size: 16,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      '알림 시간',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.amber[800],
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber[300]!),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int>(
+                            value: _notificationMinutes,
+                            isExpanded: true,
+                            isDense: true,
+                            items: _notificationOptions.map<DropdownMenuItem<int>>((option) {
+                              return DropdownMenuItem<int>(
+                                value: option['value'],
+                                child: Text(
+                                  option['label'],
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF1F2937),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _notificationMinutes = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                SizedBox(height: 6),
+                Text(
+                  _getNotificationDescription(),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.amber[700],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // 알림 시간 설명 텍스트
+  String _getNotificationDescription() {
+    if (_notificationMinutes == 0) {
+      return _isAllDay ? '하루종일 일정 시작 시 알림' : '일정 시작 시간에 알림';
+    } else if (_notificationMinutes >= 1440) {
+      final days = _notificationMinutes ~/ 1440;
+      return _isAllDay
+          ? '하루종일 일정 ${days}일 전 오전 9시에 알림'
+          : '일정 시작 ${days}일 전 같은 시간에 알림';
+    } else if (_notificationMinutes >= 60) {
+      final hours = _notificationMinutes ~/ 60;
+      return _isAllDay
+          ? '하루종일 일정 ${hours}시간 전 알림'
+          : '일정 시작 ${hours}시간 전 알림';
+    } else {
+      return _isAllDay
+          ? '하루종일 일정 ${_notificationMinutes}분 전 알림'
+          : '일정 시작 ${_notificationMinutes}분 전 알림';
+    }
   }
 
   Widget _buildHeader(bool isEditing) {
@@ -277,6 +496,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     );
   }
 
+  // 🔧 입력 필드 개선 - 유효성 검사 추가
   Widget _buildInputField({
     required TextEditingController controller,
     required String label,
@@ -304,7 +524,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey[300]!),
           ),
-          child: TextField(
+          child: TextFormField( // 🔧 TextField → TextFormField로 변경
             controller: controller,
             decoration: InputDecoration(
               hintText: hint,
@@ -314,12 +534,15 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
               hintStyle: TextStyle(color: Colors.grey[500]),
             ),
             maxLines: maxLines,
-            autofocus: autofocus,
+            autofocus: autofocus, // 자동 포커스 적용
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w500,
               color: Color(0xFF1F2937),
             ),
+            // 🔧 키보드 타입 및 액션 설정
+            textInputAction: maxLines > 1 ? TextInputAction.newline : TextInputAction.next,
+            keyboardType: maxLines > 1 ? TextInputType.multiline : TextInputType.text,
           ),
         ),
       ],
@@ -503,7 +726,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     );
   }
 
-  // 🎯 스크롤 휠 시간 선택 다이얼로그
+  // 스크롤 휠 시간 선택 다이얼로그
   void _showTimeScrollPicker(TimeOfDay currentTime, Function(TimeOfDay) onTimeChanged) {
     showModalBottomSheet(
       context: context,
@@ -524,66 +747,113 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
         color: Colors.grey[50],
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: OutlinedButton(
-              onPressed: _isLoading ? null : () => Navigator.pop(context),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Colors.grey[400]!),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: EdgeInsets.symmetric(vertical: 12),
+          // 🔔 알림 미리보기 (알림이 켜져있을 때만)
+          if (_hasNotification) ...[
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber[100],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber[300]!),
               ),
-              child: Text(
-                '취소',
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _saveSchedule,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF6366F1),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: EdgeInsets.symmetric(vertical: 12),
-                elevation: 2,
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  color: Colors.white,
-                  strokeWidth: 2,
-                ),
-              )
-                  : Text(
-                isEditing ? '수정' : '저장',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule, color: Colors.amber[700], size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _getNotificationPreview(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.amber[800],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
+            SizedBox(height: 12),
+          ],
+
+          // 버튼들
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _isLoading ? null : () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey[400]!),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Text(
+                    '취소',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _saveSchedule,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    elevation: 2,
+                  ),
+                  child: _isLoading
+                      ? SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                      : Text(
+                    isEditing ? '수정' : '저장',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // 🔧 유틸리티 메서드들
+  // 알림 미리보기 텍스트
+  String _getNotificationPreview() {
+    final scheduleTime = _isAllDay
+        ? '${_formatKoreanDate(_startDate)}'
+        : '${_formatKoreanDate(_startDate)} ${_formatTime(_startTime)}';
 
+    if (_notificationMinutes == 0) {
+      return '알림: $scheduleTime';
+    } else {
+      final option = _notificationOptions.firstWhere((opt) => opt['value'] == _notificationMinutes);
+      return '알림: $scheduleTime (${option['label']})';
+    }
+  }
+
+  // 유틸리티 메서드들
   String _formatKoreanDate(DateTime date) {
     const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
     final weekday = weekdays[date.weekday % 7];
@@ -594,8 +864,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
-  // 🎯 액션 메서드들
-
+  // 액션 메서드들
   Future<void> _selectDate({required bool isStart}) async {
     final date = await showDatePicker(
       context: context,
@@ -645,8 +914,13 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
         (time1.hour == time2.hour && time1.minute > time2.minute);
   }
 
-  // ✅ 핵심: 기존 Schedule 모델 형태로 변환해서 저장
+  // ✅ 핵심: 알림 설정이 포함된 Schedule 모델로 저장
   Future<void> _saveSchedule() async {
+    // 🔧 폼 유효성 검사 - null 체크 추가
+    if (_formKey.currentState != null && !_formKey.currentState!.validate()) {
+      return;
+    }
+
     if (_titleController.text.trim().isEmpty) {
       _showErrorSnackBar('제목을 입력해주세요');
       return;
@@ -686,7 +960,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
           _endTime.minute,
         );
 
-        // 시작 시간이 종료 시간보다 늦으면 에러
+        // 시간 일정에서 시작 시간이 종료 시간보다 늦으면 에러
         if (endTime.isBefore(scheduledAt)) {
           _showErrorSnackBar('종료 시간이 시작 시간보다 이릅니다');
           setState(() => _isLoading = false);
@@ -694,7 +968,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
         }
       }
 
-      // ✅ 기존 Schedule 모델 형태로 생성
+      // ✅ Schedule 모델 생성 - 안전한 방식으로 수정
       final schedule = Schedule(
         id: widget.existingSchedule?.id ?? '',
         title: _titleController.text.trim(),
@@ -704,6 +978,9 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
         isAllDay: _isAllDay,
         createdAt: widget.existingSchedule?.createdAt ?? DateTime.now(),
         ownerColorValue: _selectedColor.value,
+        // 🔔 알림 설정 추가 - 안전하게
+        hasNotification: _hasNotification,
+        notificationMinutes: _notificationMinutes,
       );
 
       // Schedule 객체를 반환 (기존 코드와 호환)
@@ -853,7 +1130,7 @@ class _TimeScrollPickerModalState extends State<TimeScrollPickerModal> {
                   color: Colors.grey[300],
                 ),
 
-                // 분 선택 (15분 단위)
+                // 분 선택
                 Expanded(
                   child: Column(
                     children: [
@@ -900,18 +1177,39 @@ class _TimeScrollPickerModalState extends State<TimeScrollPickerModal> {
   }
 }
 
-// 사용하기 쉬운 헬퍼 함수
+// 🔧 더 나은 사용법 - Navigator.push로 변경
 Future<Schedule?> showScheduleFormDialog({
   required BuildContext context,
   DateTime? selectedDate,
   Schedule? existingSchedule,
 }) {
-  return showDialog<Schedule>(
+  return showGeneralDialog<Schedule>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => ScheduleFormDialog(
-      selectedDate: selectedDate,
-      existingSchedule: existingSchedule,
-    ),
+    barrierColor: Colors.black54,
+    transitionDuration: Duration(milliseconds: 300),
+    pageBuilder: (context, animation1, animation2) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        resizeToAvoidBottomInset: true, // 🔧 키보드 대응 핵심!
+        body: SafeArea(
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: ScheduleFormDialog(
+                selectedDate: selectedDate,
+                existingSchedule: existingSchedule,
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (context, animation1, animation2, child) {
+      return FadeTransition(
+        opacity: animation1,
+        child: child,
+      );
+    },
   );
 }

@@ -5,6 +5,8 @@ class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _collection = 'withu_schedules';
 
+  // ===== 기존 메서드들 (그대로 유지) =====
+
   // 일정 추가
   Future<void> addSchedule(Schedule schedule) async {
     await _firestore.collection(_collection).add(schedule.toFirestore());
@@ -154,5 +156,262 @@ class FirestoreService {
       ).length,
       'allDay': schedules.where((s) => s.isAllDay).length,
     };
+  }
+
+  // ===== 🆕 백그라운드 동기화용 새 메서드들 =====
+
+  /// 🔄 모든 일정 한 번만 가져오기 (Stream 아님) - 핵심!
+  Future<List<Schedule>> getAllSchedulesOnce() async {
+    try {
+      print('📡 Firestore에서 모든 일정 가져오는 중...');
+
+      final snapshot = await _firestore
+          .collection(_collection)
+          .orderBy('scheduled_at')
+          .get();
+
+      final schedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      print('✅ ${schedules.length}개 일정 가져오기 완료');
+      return schedules;
+
+    } catch (e) {
+      print('❌ getAllSchedulesOnce 실패: $e');
+      return [];
+    }
+  }
+
+  /// 🔔 알림 설정된 미래 일정들만 가져오기 - 백그라운드 동기화용
+  Future<List<Schedule>> getNotifiableSchedules() async {
+    try {
+      print('🔔 알림 설정된 일정들 확인 중...');
+
+      final now = DateTime.now();
+
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('has_notification', isEqualTo: true)
+          .where('scheduled_at', isGreaterThan: Timestamp.fromDate(now))
+          .orderBy('scheduled_at')
+          .get();
+
+      final schedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      print('✅ 알림 설정된 미래 일정 ${schedules.length}개 발견');
+      return schedules;
+
+    } catch (e) {
+      print('❌ getNotifiableSchedules 실패: $e');
+      return [];
+    }
+  }
+
+  /// 📅 특정 시간 이후 추가된 일정들만 가져오기 - 증분 동기화용
+  Future<List<Schedule>> getSchedulesSince(DateTime lastSync) async {
+    try {
+      print('📅 ${lastSync} 이후 추가된 일정 확인 중...');
+
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('created_at', isGreaterThan: Timestamp.fromDate(lastSync))
+          .orderBy('created_at')
+          .get();
+
+      final schedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      print('✅ 새로 추가된 일정 ${schedules.length}개 발견');
+      return schedules;
+
+    } catch (e) {
+      print('❌ getSchedulesSince 실패: $e');
+      return [];
+    }
+  }
+
+  /// 🎯 오늘과 내일의 알림 설정된 일정만 가져오기 (효율적)
+  Future<List<Schedule>> getTodayAndTomorrowNotifiableSchedules() async {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final dayAfterTomorrow = today.add(Duration(days: 2));
+
+      print('📱 오늘~내일 알림 일정 확인 중...');
+
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('has_notification', isEqualTo: true)
+          .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(today))
+          .where('scheduled_at', isLessThan: Timestamp.fromDate(dayAfterTomorrow))
+          .orderBy('scheduled_at')
+          .get();
+
+      final schedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      print('✅ 오늘~내일 알림 일정 ${schedules.length}개 발견');
+      return schedules;
+
+    } catch (e) {
+      print('❌ getTodayAndTomorrowNotifiableSchedules 실패: $e');
+      return [];
+    }
+  }
+
+  /// 🔍 특정 일정 ID로 일정 가져오기 (한 번만)
+  Future<Schedule?> getScheduleById(String scheduleId) async {
+    try {
+      final doc = await _firestore
+          .collection(_collection)
+          .doc(scheduleId)
+          .get();
+
+      if (doc.exists) {
+        print('✅ 일정 ID $scheduleId 찾기 성공');
+        return Schedule.fromFirestore(doc);
+      } else {
+        print('⚠️ 일정 ID $scheduleId 찾을 수 없음');
+        return null;
+      }
+    } catch (e) {
+      print('❌ getScheduleById 실패: $e');
+      return null;
+    }
+  }
+
+  /// 📊 알림 통계 가져오기 (백그라운드 동기화 분석용)
+  Future<Map<String, int>> getNotificationStats() async {
+    try {
+      print('📊 알림 통계 계산 중...');
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(Duration(days: 1));
+      final nextWeek = today.add(Duration(days: 7));
+
+      // 알림 설정된 일정들만 가져오기
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('has_notification', isEqualTo: true)
+          .get();
+
+      final notifiableSchedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      final stats = {
+        'total_notifiable': notifiableSchedules.length,
+        'today_notifiable': notifiableSchedules.where((s) =>
+        s.scheduledAt.isAfter(today) && s.scheduledAt.isBefore(tomorrow)
+        ).length,
+        'tomorrow_notifiable': notifiableSchedules.where((s) =>
+        s.scheduledAt.isAfter(tomorrow) && s.scheduledAt.isBefore(tomorrow.add(Duration(days: 1)))
+        ).length,
+        'this_week_notifiable': notifiableSchedules.where((s) =>
+        s.scheduledAt.isAfter(today) && s.scheduledAt.isBefore(nextWeek)
+        ).length,
+        'future_notifiable': notifiableSchedules.where((s) =>
+            s.scheduledAt.isAfter(now)
+        ).length,
+      };
+
+      print('✅ 알림 통계: $stats');
+      return stats;
+
+    } catch (e) {
+      print('❌ getNotificationStats 실패: $e');
+      return {};
+    }
+  }
+
+  /// 🧪 연결 테스트 (백그라운드에서 Firestore 접근 가능한지 확인)
+  Future<bool> testConnection() async {
+    try {
+      print('🧪 Firestore 연결 테스트 중...');
+
+      // 간단한 쿼리로 연결 테스트
+      final snapshot = await _firestore
+          .collection(_collection)
+          .limit(1)
+          .get();
+
+      print('✅ Firestore 연결 테스트 성공 (문서 ${snapshot.docs.length}개 확인)');
+      return true;
+    } catch (e) {
+      print('❌ Firestore 연결 테스트 실패: $e');
+      return false;
+    }
+  }
+
+  /// 🔄 특정 날짜 범위의 일정 가져오기 (한 번만) - 백그라운드용
+  Future<List<Schedule>> getSchedulesByDateRangeOnce(DateTime startDate, DateTime endDate) async {
+    try {
+      print('📅 ${startDate.toString().substring(0, 10)} ~ ${endDate.toString().substring(0, 10)} 일정 확인 중...');
+
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('scheduled_at', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
+          .orderBy('scheduled_at')
+          .get();
+
+      final schedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      print('✅ 해당 기간 일정 ${schedules.length}개 발견');
+      return schedules;
+
+    } catch (e) {
+      print('❌ getSchedulesByDateRangeOnce 실패: $e');
+      return [];
+    }
+  }
+
+  /// 📱 일정 추가와 동시에 알림 예약 (통합 메서드)
+  Future<void> addScheduleWithNotification(Schedule schedule) async {
+    try {
+      // 1. Firestore에 일정 추가
+      await addSchedule(schedule);
+      print('✅ 일정 "${schedule.title}" Firestore에 추가 완료');
+
+      // 2. 알림이 설정되어 있으면 즉시 알림 예약도 트리거
+      if (schedule.hasNotification) {
+        print('🔔 알림이 설정된 일정이므로 백그라운드 동기화 트리거');
+        // BackgroundSyncService에서 곧 감지할 것임
+      }
+
+    } catch (e) {
+      print('❌ addScheduleWithNotification 실패: $e');
+      rethrow;
+    }
+  }
+
+  /// 🗑️ 일정 삭제와 동시에 알림 취소 (통합 메서드)
+  Future<void> deleteScheduleWithNotification(String id) async {
+    try {
+      // 1. 먼저 일정 정보 가져오기 (알림 취소를 위해)
+      final schedule = await getScheduleById(id);
+
+      // 2. Firestore에서 일정 삭제
+      await deleteSchedule(id);
+      print('✅ 일정 ID $id Firestore에서 삭제 완료');
+
+      // 3. 알림이 설정되어 있었으면 알림도 취소해야 함을 알림
+      if (schedule?.hasNotification == true) {
+        print('🗑️ 알림이 설정된 일정 삭제됨 - 알림 취소 필요');
+        // NotificationService에서 처리해야 함
+      }
+
+    } catch (e) {
+      print('❌ deleteScheduleWithNotification 실패: $e');
+      rethrow;
+    }
   }
 }

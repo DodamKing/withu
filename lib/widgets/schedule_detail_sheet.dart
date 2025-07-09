@@ -241,6 +241,11 @@ class ScheduleDetailSheet extends StatelessWidget {
       badges.add(_buildBadge('진행중', Color(0xFFEF4444)));
     }
 
+    // 🔔 알림 배지 추가
+    if (schedule.hasNotification) {
+      badges.add(_buildBadge('알림설정', Color(0xFFFF9500)));
+    }
+
     if (badges.isEmpty) return SizedBox.shrink();
 
     return Wrap(
@@ -278,6 +283,17 @@ class ScheduleDetailSheet extends StatelessWidget {
             schedule.timeText,
             Color(0xFF06B6D4),
           ),
+
+          // 🔔 알림 정보 추가
+          if (schedule.hasNotification) ...[
+            SizedBox(height: 12),
+            _buildDetailRow(
+              Icons.notifications_active_rounded,
+              '알림',
+              _getNotificationText(),
+              Color(0xFFFF9500),
+            ),
+          ],
 
           // 상세 일정 정보 (여러 날 시간 일정용)
           if (schedule.isMultiDay && !schedule.isAllDay) ...[
@@ -470,6 +486,23 @@ class ScheduleDetailSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // 🔔 알림 텍스트 생성 메서드
+  String _getNotificationText() {
+    if (!schedule.hasNotification) return '알림 없음';
+
+    if (schedule.notificationMinutes == 0) {
+      return schedule.isAllDay ? '하루종일 일정 시작 시 알림' : '일정 시작 시 알림';
+    } else if (schedule.notificationMinutes >= 1440) {
+      final days = schedule.notificationMinutes ~/ 1440;
+      return '${days}일 전 알림';
+    } else if (schedule.notificationMinutes >= 60) {
+      final hours = schedule.notificationMinutes ~/ 60;
+      return '${hours}시간 전 알림';
+    } else {
+      return '${schedule.notificationMinutes}분 전 알림';
+    }
   }
 
   // 아이콘 선택

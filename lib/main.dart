@@ -1,28 +1,91 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // kDebugMode 추가
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'screens/calendar_screen.dart';
 import 'screens/weekly_screen.dart';
-import 'screens/notification_test_screen.dart'; // 테스트 화면만 추가
-import 'widgets/schedule_form_dialog.dart';
-import 'services/firestore_service.dart';
+import 'screens/notification_test_screen.dart';
+import 'services/notification_service.dart';
+import 'services/background_sync_service.dart';
+import 'services/schedule_action_service.dart';
+
+// 🔔 전역 네비게이터 키 및 메인 화면 컨트롤러 (알림 탭 처리용)
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<_MainScreenState> mainScreenKey = GlobalKey<_MainScreenState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
+    // 1. Firebase 초기화
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     print('✅ Firebase 초기화 성공!');
+
+    // 2. 🔔 알림 서비스 초기화 + 탭 리스너 설정
+    final notificationService = NotificationService();
+    await notificationService.initialize();
+    await _setupNotificationTapHandler();
+    print('🔔 알림 서비스 초기화 완료');
+
+    // 3. 🔄 백그라운드 동기화 서비스 시작
+    await BackgroundSyncService.startBackgroundSync();
+    print('🔄 백그라운드 동기화 서비스 시작 완료');
+
   } catch (e) {
-    print('❌ Firebase 초기화 실패: $e');
+    print('❌ 초기화 실패: $e');
   }
 
   runApp(WithUApp());
+}
+
+// 🔔 알림 탭 처리 설정
+Future<void> _setupNotificationTapHandler() async {
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
+
+  // 알림 탭 시 실행될 함수 설정
+  await flutterLocalNotificationsPlugin.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
+    ),
+    onDidReceiveNotificationResponse: (NotificationResponse response) async {
+      // 알림을 탭했을 때 실행
+      await _handleNotificationTap(response);
+    },
+  );
+}
+
+// 🔔 알림 탭 처리 함수
+Future<void> _handleNotificationTap(NotificationResponse response) async {
+  try {
+    print('🔔 알림 탭됨: ${response.payload}');
+
+    // 앱이 실행 중이면 캘린더로 이동
+    final mainScreenState = mainScreenKey.currentState;
+    if (mainScreenState != null) {
+      // 캘린더 탭으로 이동 (인덱스 1)
+      mainScreenState.navigateToCalendar();
+
+      // payload에서 일정 정보 추출하여 특정 날짜로 이동 (추후 구현)
+      final payload = response.payload;
+      if (payload != null && payload.isNotEmpty) {
+        // payload 형식: "schedule_id:일정제목"
+        print('📅 일정 정보: $payload');
+        // TODO: 특정 일정이 있는 날짜로 이동하는 기능 추가
+      }
+    } else {
+      print('⚠️ MainScreen이 아직 초기화되지 않음');
+    }
+
+  } catch (e) {
+    print('❌ 알림 탭 처리 실패: $e');
+  }
 }
 
 class WithUApp extends StatelessWidget {
@@ -31,6 +94,7 @@ class WithUApp extends StatelessWidget {
     return MaterialApp(
       title: 'WithU - 둘만의 일정 공유',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey, // 🔔 네비게이터 키 설정
 
       // 🇰🇷 한국어 지원 추가
       localizationsDelegates: [
@@ -108,12 +172,73 @@ class MainScreen extends StatefulWidget {
   _MainScreenState createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
-  final FirestoreService _firestoreService = FirestoreService();
 
   // 각 화면의 GlobalKey - 화면 상태에 접근하기 위해
   final GlobalKey<CalendarScreenState> _calendarKey = GlobalKey<CalendarScreenState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // 🔄 앱 생명주기 관찰자 등록
+    WidgetsBinding.instance.addObserver(this);
+
+    // 🔔 전역에서 접근할 수 있도록 키 설정
+    mainScreenKey.currentState != null ? null :
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // mainScreenKey에 현재 상태 연결은 StatefulWidget 특성상 자동으로 됨
+    });
+  }
+
+  @override
+  void dispose() {
+    // 🔄 앱 생명주기 관찰자 해제
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // 🔔 알림에서 호출할 수 있는 공개 메서드
+  void navigateToCalendar() {
+    setState(() {
+      _selectedIndex = 1; // 캘린더 탭으로 이동
+    });
+  }
+
+  // 🔔 특정 날짜의 캘린더로 이동 (추후 구현)
+  void navigateToScheduleDate(DateTime date) {
+    setState(() {
+      _selectedIndex = 1; // 캘린더 탭으로 이동
+    });
+
+    // 캘린더에서 해당 날짜로 이동
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final calendarState = _calendarKey.currentState;
+      if (calendarState != null) {
+        // TODO: CalendarScreen에 날짜 이동 메서드 추가 필요
+        // calendarState.moveToDate(date);
+      }
+    });
+  }
+
+  // 🔄 앱 생명주기 관리
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+      // 앱이 포그라운드로 올 때
+        BackgroundSyncService.onAppResumed();
+        break;
+      case AppLifecycleState.paused:
+      // 앱이 백그라운드로 갈 때
+        BackgroundSyncService.onAppPaused();
+        break;
+      default:
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +249,7 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
+      key: mainScreenKey, // 🔔 전역 접근용 키 설정
       body: Stack(
         children: [
           // 기존 화면들
@@ -227,7 +353,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
 
-      // 🎯 기존 스마트 FAB - 그대로 유지
+      // 🎯 스마트 FAB - ScheduleActionService 사용
       floatingActionButton: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -258,53 +384,13 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // 🎯 기존 메서드들 그대로 유지
+  // 🔧 간단해진 일정 추가 메서드 - ScheduleActionService 사용
   void _showAddScheduleDialog() async {
     // 현재 화면에 따라 다른 기본 날짜 설정
     DateTime? selectedDate = _getSelectedDateForCurrentScreen();
 
-    final schedule = await showScheduleFormDialog(
-      context: context,
-      selectedDate: selectedDate,
-    );
-
-    if (schedule != null) {
-      try {
-        // 수정 모드인지 새 일정인지 구분
-        if (schedule.id.isNotEmpty) {
-          // 수정 모드
-          await _firestoreService.updateSchedule(schedule.id, schedule);
-        } else {
-          // 새 일정 추가
-          await _firestoreService.addSchedule(schedule);
-        }
-
-        // 화면별 맞춤 성공 메시지
-        _showSuccessMessage();
-
-      } catch (e) {
-        // 오류 메시지
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.white),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text('일정 처리에 실패했습니다: $e'),
-                ),
-              ],
-            ),
-            backgroundColor: Color(0xFFEF4444),
-            duration: Duration(seconds: 3),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
-      }
-    }
+    // 🎯 ScheduleActionService 사용 - 모든 처리를 한 번에!
+    await ScheduleActionService.addSchedule(context, selectedDate);
   }
 
   DateTime? _getSelectedDateForCurrentScreen() {
@@ -326,65 +412,5 @@ class _MainScreenState extends State<MainScreen> {
       default:
         return DateTime.now();
     }
-  }
-
-  void _showSuccessMessage() {
-    String message = '일정이 추가되었습니다!';
-    String actionText = '확인';
-    VoidCallback? onAction;
-
-    switch (_selectedIndex) {
-      case 0: // 홈 화면
-        message = '일정이 추가되었습니다!';
-        actionText = '달력 보기';
-        onAction = () {
-          setState(() {
-            _selectedIndex = 1; // 달력 탭으로 이동
-          });
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        };
-        break;
-
-      case 1: // 달력 화면
-        message = '선택한 날짜에 일정이 추가되었습니다!';
-        actionText = '확인';
-        // 달력 화면에서는 이미 해당 날짜에 있으므로 특별한 액션 없음
-        break;
-
-      case 2: // 주간 화면
-        message = '일정이 추가되었습니다!';
-        actionText = '새로고침';
-        // 주간뷰 새로고침 로직 (추후 구현)
-        break;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            SizedBox(width: 8),
-            Expanded(child: Text(message)),
-            if (onAction != null)
-              TextButton(
-                onPressed: onAction,
-                child: Text(
-                  actionText,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        backgroundColor: Color(0xFF10B981),
-        duration: Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    );
   }
 }

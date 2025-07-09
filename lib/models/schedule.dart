@@ -9,7 +9,11 @@ class Schedule {
   final DateTime? endTime;     // 종료 날짜/시간 (기존 필드명 유지)
   final bool isAllDay;         // 하루종일 여부
   final DateTime createdAt;
-  final int?   ownerColorValue; // Color.value 로 저장할 수 있도록
+  final int? ownerColorValue;  // Color.value로 저장할 수 있도록
+
+  // 🔔 알림 관련 최소한의 추가 필드들
+  final bool hasNotification;     // 알림 설정 여부 (단순 true/false)
+  final int notificationMinutes;  // 몇 분 전 알림인지 (단일 값)
 
   Schedule({
     required this.id,
@@ -20,6 +24,8 @@ class Schedule {
     this.isAllDay = false,
     required this.createdAt,
     this.ownerColorValue,
+    this.hasNotification = false,     // 기본값: 알림 없음
+    this.notificationMinutes = 10,    // 기본값: 10분전
   });
 
   // Firestore에서 데이터 가져올 때 (기존 코드와 호환)
@@ -37,6 +43,10 @@ class Schedule {
       isAllDay: data['is_all_day'] ?? false,
       createdAt: (data['created_at'] as Timestamp).toDate(),
       ownerColorValue: data['owner_color'] as int? ?? Colors.grey.value,
+
+      // 새 필드들 (기존 데이터에 없으면 기본값)
+      hasNotification: data['has_notification'] ?? false,
+      notificationMinutes: data['notification_minutes'] ?? 10,
     );
   }
 
@@ -50,25 +60,25 @@ class Schedule {
       'is_all_day': isAllDay,
       'created_at': Timestamp.fromDate(createdAt),
       'owner_color': ownerColorValue,
+
+      // 새 필드들
+      'has_notification': hasNotification,
+      'notification_minutes': notificationMinutes,
     };
   }
 
-  // 🆕 새로운 편의 메서드들 (기존 코드는 그대로 동작)
-
-  // 시작 날짜 (날짜만)
+  // 기존 편의 메서드들은 그대로 유지
   DateTime get startDate {
     return DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day);
   }
 
-  // 종료 날짜 (날짜만)
   DateTime get endDate {
     if (endTime != null) {
       return DateTime(endTime!.year, endTime!.month, endTime!.day);
     }
-    return startDate; // 종료일이 없으면 시작일과 동일
+    return startDate;
   }
 
-  // 시작 시간 (하루종일이면 00:00)
   DateTime get startTime {
     if (isAllDay) {
       return DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day);
@@ -76,32 +86,26 @@ class Schedule {
     return scheduledAt;
   }
 
-  // 실제 종료 시간
   DateTime get actualEndTime {
     if (isAllDay) {
       if (endTime != null) {
-        // 하루종일 + 종료날짜가 있으면 종료날짜 23:59:59
         return DateTime(endTime!.year, endTime!.month, endTime!.day, 23, 59, 59);
       }
-      // 하루종일 + 종료날짜 없으면 당일 23:59:59
       return DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day, 23, 59, 59);
     }
-    return endTime ?? scheduledAt.add(Duration(hours: 1)); // 기본 1시간
+    return endTime ?? scheduledAt.add(Duration(hours: 1));
   }
 
-  // 🆕 여러 날에 걸친 일정인지 확인
   bool get isMultiDay {
     if (endTime == null) return false;
     return !_isSameDay(scheduledAt, endTime!);
   }
 
-  // 🆕 일정 기간 (일 단위)
   int get durationInDays {
     if (endTime == null) return 1;
     return endDate.difference(startDate).inDays + 1;
   }
 
-  // 🆕 일정 시간 텍스트 (UI 표시용) - 개선
   String get timeText {
     if (isAllDay) {
       if (isMultiDay) {
@@ -124,7 +128,6 @@ class Schedule {
     return start;
   }
 
-  // 🆕 날짜 범위 텍스트
   String get dateRangeText {
     if (isMultiDay) {
       return '${_formatDate(startDate)} - ${_formatDate(endDate)}';
@@ -132,66 +135,62 @@ class Schedule {
     return _formatDate(startDate);
   }
 
-  // 🆕 특정 날짜에 이 일정이 포함되는지 확인
   bool includesDate(DateTime date) {
     final targetDate = DateTime(date.year, date.month, date.day);
     return (targetDate.isAfter(startDate) || targetDate.isAtSameMomentAs(startDate)) &&
         (targetDate.isBefore(endDate) || targetDate.isAtSameMomentAs(endDate));
   }
 
-  // 🆕 일정이 진행 중인지 확인
   bool get isCurrentlyActive {
     final now = DateTime.now();
     return now.isAfter(startTime) && now.isBefore(actualEndTime);
   }
 
-  // 🆕 편의 생성자들 (기존 생성자는 그대로 유지)
+  // 🔔 알림 관련 간단한 메서드들
 
-  // 하루종일 일정 생성 (여러 날 지원)
-  factory Schedule.createAllDay({
-    required String id,
-    required String title,
-    required String memo,
-    required DateTime startDate,
-    DateTime? endDate, // null이면 하루만
-    required DateTime createdAt,
-    int? ownerColorValue,
-  }) {
-    final scheduledAt = DateTime(startDate.year, startDate.month, startDate.day);
-    final endTime = endDate != null
-        ? DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59)
-        : null;
+  // 알림 시간 계산
+  DateTime? getNotificationTime() {
+    if (!hasNotification) return null;
 
-    return Schedule(
-      id: id,
-      title: title,
-      memo: memo,
-      scheduledAt: scheduledAt,
-      endTime: endTime,
-      isAllDay: true,
-      createdAt: createdAt,
-      ownerColorValue: ownerColorValue,
-    );
+    DateTime notificationTime;
+    if (isAllDay) {
+      // 하루종일: 당일 오전 9시에서 분만큼 빼기
+      final targetTime = DateTime(scheduledAt.year, scheduledAt.month, scheduledAt.day, 9, 0);
+      notificationTime = targetTime.subtract(Duration(minutes: notificationMinutes));
+    } else {
+      // 시간 일정: 시작 시간에서 분만큼 빼기
+      notificationTime = scheduledAt.subtract(Duration(minutes: notificationMinutes));
+    }
+
+    // 과거 시간이면 null 반환
+    return notificationTime.isAfter(DateTime.now()) ? notificationTime : null;
   }
 
-  // 시간 일정 생성 (여러 날 지원)
-  factory Schedule.createTimed({
-    required String id,
-    required String title,
-    required String memo,
-    required DateTime startDateTime,
-    required DateTime endDateTime,
-    required DateTime createdAt,
-  }) {
-    return Schedule(
-      id: id,
-      title: title,
-      memo: memo,
-      scheduledAt: startDateTime,
-      endTime: endDateTime,
-      isAllDay: false,
-      createdAt: createdAt,
-    );
+  // 알림 ID 생성 (일정별 고유)
+  int get notificationId {
+    return id.hashCode.abs();
+  }
+
+  // 알림 제목
+  String get notificationTitle {
+    if (notificationMinutes == 0) {
+      return '📅 $title';
+    } else {
+      return '⏰ $notificationMinutes분 후: $title';
+    }
+  }
+
+  // 알림 내용
+  String get notificationBody {
+    if (isAllDay) {
+      return notificationMinutes == 0
+          ? '하루종일 일정이 시작되었습니다.'
+          : '$notificationMinutes분 후 하루종일 일정이 있습니다.';
+    } else {
+      return notificationMinutes == 0
+          ? '$timeText 일정이 시작되었습니다.'
+          : '$notificationMinutes분 후 $timeText 일정이 있습니다.';
+    }
   }
 
   // 도우미 메서드들
@@ -215,6 +214,8 @@ class Schedule {
     bool? isAllDay,
     DateTime? createdAt,
     int? ownerColorValue,
+    bool? hasNotification,
+    int? notificationMinutes,
   }) {
     return Schedule(
       id: id ?? this.id,
@@ -224,7 +225,9 @@ class Schedule {
       endTime: endTime ?? this.endTime,
       isAllDay: isAllDay ?? this.isAllDay,
       createdAt: createdAt ?? this.createdAt,
-      ownerColorValue: ownerColorValue ?? this.ownerColorValue
+      ownerColorValue: ownerColorValue ?? this.ownerColorValue,
+      hasNotification: hasNotification ?? this.hasNotification,
+      notificationMinutes: notificationMinutes ?? this.notificationMinutes,
     );
   }
 }

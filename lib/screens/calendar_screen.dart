@@ -5,6 +5,7 @@ import '../services/firestore_service.dart';
 import '../widgets/schedule_tile.dart';
 import '../widgets/schedule_form_dialog.dart';
 import '../utils/date_utils.dart' as utils;
+import '../services/schedule_action_service.dart';
 
 class CalendarScreen extends StatefulWidget {
   // Key 추가 - main.dart에서 접근할 수 있도록
@@ -443,8 +444,8 @@ class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
                                 return ScheduleTile(
                                   schedule: schedule,
                                   showDate: false,
-                                  onEdit: () => _editSchedule(schedule),
-                                  onDelete: () => _deleteSchedule(schedule),
+                                  onEdit: () => ScheduleActionService.editSchedule(context, schedule),
+                                  onDelete: () => ScheduleActionService.deleteSchedule(context, schedule),
                                 );
                               },
                             );
