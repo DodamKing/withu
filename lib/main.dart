@@ -11,6 +11,8 @@ import 'screens/notification_test_screen.dart';
 import 'services/notification_service.dart';
 import 'services/background_sync_service.dart';
 import 'services/schedule_action_service.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 // 🔔 전역 네비게이터 키 및 메인 화면 컨트롤러 (알림 탭 처리용)
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -19,6 +21,9 @@ final GlobalKey<_MainScreenState> mainScreenKey = GlobalKey<_MainScreenState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Seoul'));
+
   try {
     // 1. Firebase 초기화
     await Firebase.initializeApp(
@@ -26,10 +31,8 @@ void main() async {
     );
     print('✅ Firebase 초기화 성공!');
 
-    // 2. 🔔 알림 서비스 초기화 + 탭 리스너 설정
-    final notificationService = NotificationService();
-    await notificationService.initialize();
-    await _setupNotificationTapHandler();
+    // 2. 🔔 알림 서비스 초기화 (탭 리스너 포함)
+    await _setupNotificationService();
     print('🔔 알림 서비스 초기화 완료');
 
     // 3. 🔄 백그라운드 동기화 서비스 시작
@@ -56,6 +59,30 @@ Future<void> _setupNotificationTapHandler() async {
     ),
     onDidReceiveNotificationResponse: (NotificationResponse response) async {
       // 알림을 탭했을 때 실행
+      await _handleNotificationTap(response);
+    },
+  );
+}
+
+// 🔔 통합된 알림 서비스 설정 (기존 initialize + 탭 리스너)
+Future<void> _setupNotificationService() async {
+  final notificationService = NotificationService();
+
+  // 기본 초기화
+  await notificationService.initialize();
+
+  // 탭 리스너 추가 설정
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
+
+  // 알림 탭 처리를 위한 재초기화
+  await flutterLocalNotificationsPlugin.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
+    ),
+    onDidReceiveNotificationResponse: (NotificationResponse response) async {
+      // 🔔 알림 탭 시 실행
       await _handleNotificationTap(response);
     },
   );

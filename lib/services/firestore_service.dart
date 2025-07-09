@@ -414,4 +414,36 @@ class FirestoreService {
       rethrow;
     }
   }
+
+  /// 🎯 오늘 알림 설정된 일정만 가져오기 (초경량 백그라운드용)
+  Future<List<Schedule>> getTodayNotifiableSchedules() async {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(Duration(days: 1));
+
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('has_notification', isEqualTo: true)
+          .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(today))
+          .where('scheduled_at', isLessThan: Timestamp.fromDate(tomorrow))
+          .orderBy('scheduled_at')
+          .get();
+
+      final schedules = snapshot.docs
+          .map((doc) => Schedule.fromFirestore(doc))
+          .toList();
+
+      // 과거 시간 알림은 제외 (이미 지난 알림)
+      final validSchedules = schedules.where((schedule) {
+        return schedule.getNotificationTime() != null;
+      }).toList();
+
+      return validSchedules;
+
+    } catch (e) {
+      // 에러 시 빈 리스트 반환 (백그라운드에서는 조용히 처리)
+      return [];
+    }
+  }
 }

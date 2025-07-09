@@ -7,6 +7,9 @@ import '../models/schedule.dart';
 import 'firestore_service.dart';
 import 'notification_service.dart';
 import '../firebase_options.dart';
+import 'package:flutter/material.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 class BackgroundSyncService {
   static const String SYNC_TASK = 'withu_sync_task';
@@ -21,7 +24,7 @@ class BackgroundSyncService {
       // WorkManager 초기화
       await Workmanager().initialize(
         callbackDispatcher,
-        isInDebugMode: true,
+        isInDebugMode: false,
       );
 
       // 주기적 동기화 작업 등록 (15분마다)
@@ -84,16 +87,15 @@ class BackgroundSyncService {
     await _performSync();
   }
 
-  /// 📡 실제 동기화 수행 (핵심 로직) - Firebase 초기화 포함
+  /// 📡 실제 동기화 수행 (핵심 로직) - 오늘 일정만으로 최적화
   static Future<void> _performSync() async {
     try {
-      log('📡 동기화 시작 - Firebase 상태 확인 중...');
+      log('📡 동기화 시작 (오늘 알림 일정만) - Firebase 상태 확인 중...');
 
       // 🔧 Firebase 초기화 확인 및 초기화
       if (Firebase.apps.isEmpty) {
         log('🔥 Firebase 초기화되지 않음 - 초기화 시도 중...');
 
-        // 백그라운드에서 Firebase 초기화 시도
         try {
           await Firebase.initializeApp();
           log('✅ Firebase 백그라운드 초기화 성공');
@@ -117,27 +119,20 @@ class BackgroundSyncService {
         // 알림 서비스 실패해도 동기화는 계속 진행
       }
 
-      // 1. 알림이 설정된 미래 일정들만 가져오기
-      final allSchedules = await firestoreService.getAllSchedulesOnce();
-      final now = DateTime.now();
+      // 🎯 핵심 최적화: 오늘 알림 일정만 가져오기 (초경량!)
+      final todayNotifiableSchedules = await firestoreService.getTodayNotifiableSchedules();
 
-      final notifiableSchedules = allSchedules.where((schedule) {
-        return schedule.hasNotification &&
-            schedule.scheduledAt.isAfter(now) &&
-            schedule.getNotificationTime() != null;
-      }).toList();
-
-      if (notifiableSchedules.isEmpty) {
-        log('📭 알림 설정된 미래 일정이 없습니다');
+      if (todayNotifiableSchedules.isEmpty) {
+        log('📭 오늘 알림 설정된 일정이 없습니다');
         await _updateLastSyncTime();
         return;
       }
 
-      log('📬 알림 설정된 일정 ${notifiableSchedules.length}개 발견');
+      log('📬 오늘 알림 설정된 일정 ${todayNotifiableSchedules.length}개 발견');
 
       // 2. 이미 처리된 일정들 확인
       final newSchedules = <Schedule>[];
-      for (final schedule in notifiableSchedules) {
+      for (final schedule in todayNotifiableSchedules) {
         final isProcessed = await notificationService.isScheduleProcessed(schedule.id);
         if (!isProcessed) {
           newSchedules.add(schedule);
@@ -145,12 +140,12 @@ class BackgroundSyncService {
       }
 
       if (newSchedules.isEmpty) {
-        log('🔄 모든 일정이 이미 처리되었습니다');
+        log('🔄 오늘 모든 일정이 이미 처리되었습니다');
         await _updateLastSyncTime();
         return;
       }
 
-      log('🆕 새로운 일정 ${newSchedules.length}개 발견');
+      log('🆕 오늘 새로운 일정 ${newSchedules.length}개 발견');
 
       // 3. 새 일정들의 알림 등록
       int successCount = 0;
@@ -158,22 +153,25 @@ class BackgroundSyncService {
         final success = await notificationService.scheduleNotification(schedule);
         if (success) {
           successCount++;
+          log('✅ "${schedule.title}" 알림 예약 완료');
+        } else {
+          log('⚠️ "${schedule.title}" 알림 예약 실패');
         }
       }
 
       // 4. 마지막 동기화 시간 업데이트
       await _updateLastSyncTime();
 
-      log('🎉 백그라운드 동기화 완료! ${newSchedules.length}개 중 ${successCount}개 성공');
+      log('🎉 백그라운드 동기화 완료! 오늘 일정 ${newSchedules.length}개 중 ${successCount}개 성공');
 
     } catch (e) {
       log('❌ 백그라운드 동기화 실패: $e');
     }
   }
 
-  /// 🔄 전체 재동기화 (설정 변경 시 또는 오류 복구용)
+  /// 🔄 전체 재동기화 (설정 변경 시 또는 오류 복구용) - 최적화
   static Future<void> fullResync() async {
-    log('🔄 전체 재동기화 시작');
+    log('🔄 전체 재동기화 시작 (효율적 버전)');
 
     try {
       // Firebase 초기화 확인
@@ -184,16 +182,26 @@ class BackgroundSyncService {
       final firestoreService = FirestoreService();
       final notificationService = NotificationService();
 
-      // 1. 모든 일정 가져오기
-      final allSchedules = await firestoreService.getAllSchedulesOnce();
+      // 1. 기존 알림 모두 취소
+      await notificationService.cancelAllNotifications();
+      log('🧹 기존 알림 모두 취소 완료');
 
-      // 2. 기존 알림 정리 후 새로 동기화
-      await notificationService.resyncAllNotifications(allSchedules);
+      // 2. 🎯 오늘과 내일 알림 일정만 가져오기 (전체 말고!)
+      final nearFutureSchedules = await firestoreService.getTodayAndTomorrowNotifiableSchedules();
 
-      // 3. 마지막 동기화 시간 업데이트
+      if (nearFutureSchedules.isEmpty) {
+        log('📭 오늘~내일 알림 일정이 없습니다');
+        await _updateLastSyncTime();
+        return;
+      }
+
+      // 3. 알림 재등록
+      final successCount = await notificationService.scheduleMultipleNotifications(nearFutureSchedules);
+
+      // 4. 마지막 동기화 시간 업데이트
       await _updateLastSyncTime();
 
-      log('🔄 전체 재동기화 완료');
+      log('🔄 전체 재동기화 완료: ${nearFutureSchedules.length}개 중 ${successCount}개 성공');
 
     } catch (e) {
       log('❌ 전체 재동기화 실패: $e');
@@ -311,6 +319,10 @@ void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
       log('🔄 백그라운드 작업 실행: $task');
+
+      WidgetsFlutterBinding.ensureInitialized();
+      tz.initializeTimeZones();
+      tz.setLocalLocation(tz.getLocation('Asia/Seoul'));
 
       if (task == BackgroundSyncService.SYNC_TASK) {
         // 🔧 백그라운드에서 Firebase 완전 초기화
