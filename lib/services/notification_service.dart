@@ -26,7 +26,7 @@ class NotificationService {
       tz.initializeTimeZones();
       tz.setLocalLocation(tz.getLocation('Asia/Seoul'));
 
-      // 2. 알림 플러그인 초기화 (간단한 버전)
+      // 2. 알림 플러그인 초기화
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
       const initSettings = InitializationSettings(android: androidSettings);
 
@@ -78,7 +78,7 @@ class NotificationService {
     }
   }
 
-  /// ⏰ 특정 일정의 알림 예약 (간단한 버전)
+  /// ⏰ 특정 일정의 알림 예약
   Future<bool> scheduleNotification(Schedule schedule) async {
     if (!_isInitialized) {
       final initialized = await initialize();
@@ -98,14 +98,11 @@ class NotificationService {
     }
 
     try {
-      // 알림 제목과 내용을 미리 변수로 저장
       final title = schedule.notificationTitle;
       final body = schedule.notificationBody;
-
-      // 🔔 payload 추가 (일정 ID와 제목)
       final payload = '${schedule.id}:${schedule.title}';
 
-      // 간단한 알림 설정
+      // 실제 일정 알림 설정
       final androidDetails = AndroidNotificationDetails(
         'withu_schedule_channel',
         'WithU 일정 알림',
@@ -115,9 +112,7 @@ class NotificationService {
         showWhen: true,
         enableVibration: true,
         playSound: true,
-        // 🔔 알림 탭 시 앱 실행 설정
         autoCancel: true,
-        // 스타일 정보 추가 (더 간단한 버전)
         styleInformation: BigTextStyleInformation(
           body,
           contentTitle: title,
@@ -135,7 +130,7 @@ class NotificationService {
         tzScheduledTime,
         notificationDetails,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        payload: payload, // 🔔 탭 처리용 데이터 추가
+        payload: payload,
       );
 
       log('⏰ ${schedule.title} 알림 예약 완료: ${notificationTime.toString().substring(11, 16)}');
@@ -229,7 +224,8 @@ class NotificationService {
     }
   }
 
-  /// 🧪 테스트 알림 (디버그용)
+  /// 🧪 테스트 알림 (디버그용 - 수동 호출 시만 사용)
+  /// ⚠️ 주의: 이 메서드는 테스트 화면에서만 수동으로 호출해야 함
   Future<void> sendTestNotification() async {
     if (!_isInitialized) {
       final initialized = await initialize();
@@ -252,7 +248,7 @@ class NotificationService {
         NotificationDetails(android: androidDetails),
       );
 
-      log('🧪 테스트 알림 전송 완료');
+      log('🧪 테스트 알림 전송 완료 (수동 호출)');
     } catch (e) {
       log('❌ 테스트 알림 실패: $e');
     }

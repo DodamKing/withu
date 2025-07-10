@@ -22,7 +22,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
   final _titleController = TextEditingController();
   final _memoController = TextEditingController();
   final _scrollController = ScrollController();
-  final _formKey = GlobalKey<FormState>(); // 🔧 폼 키 추가
+  final _formKey = GlobalKey<FormState>();
 
   // 시작일시 관련
   late DateTime _startDate;
@@ -37,9 +37,13 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
 
   Color _selectedColor = Colors.blueAccent;
 
-  // 🔔 알림 관련 새 변수들
+  // 🔔 알림 관련 변수들
   bool _hasNotification = false;
   int _notificationMinutes = 10;
+
+  // 🆕 간격 유지 로직을 위한 변수들
+  bool _isEndTimeManuallySet = false;  // 종료 시간이 수동으로 설정되었는지
+  int _currentDurationMinutes = 60;    // 현재 일정 길이 (기본 1시간)
 
   // 알림 시간 옵션들
   final List<Map<String, dynamic>> _notificationOptions = [
@@ -71,7 +75,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       _memoController.text = schedule.memo;
       _isAllDay = schedule.isAllDay;
 
-      // 🔔 알림 설정 불러오기
+      // 알림 설정 불러오기
       _hasNotification = schedule.hasNotification;
       _notificationMinutes = schedule.notificationMinutes;
 
@@ -103,6 +107,11 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
           _endTime = TimeOfDay(hour: (_startTime.hour + 1) % 24, minute: _startTime.minute);
         }
       }
+
+      // 🎯 기존 일정은 이미 설정된 간격이 있는 것으로 간주
+      _isEndTimeManuallySet = true;
+      _calculateCurrentDuration();
+
     } else {
       // 새 일정 모드
       final baseDate = widget.selectedDate ?? DateTime.now();
@@ -114,9 +123,13 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       _endTime = TimeOfDay(hour: (now.hour + 1) % 24, minute: 0);
       _isAllDay = false;
 
-      // 🔔 새 일정 기본값: 알림 꺼짐, 10분 전
+      // 새 일정 기본값
       _hasNotification = false;
       _notificationMinutes = 10;
+
+      // 🎯 새 일정은 자동 설정 상태, 기본 1시간
+      _isEndTimeManuallySet = false;
+      _currentDurationMinutes = 60;
     }
   }
 
@@ -128,12 +141,140 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     super.dispose();
   }
 
+  // 🆕 현재 시작-종료 간격 계산
+  void _calculateCurrentDuration() {
+    if (_isAllDay) {
+      _currentDurationMinutes = 60; // 하루종일은 기본값
+      return;
+    }
+
+    final startDateTime = DateTime(
+      _startDate.year,
+      _startDate.month,
+      _startDate.day,
+      _startTime.hour,
+      _startTime.minute,
+    );
+
+    final endDateTime = DateTime(
+      _endDate.year,
+      _endDate.month,
+      _endDate.day,
+      _endTime.hour,
+      _endTime.minute,
+    );
+
+    final duration = endDateTime.difference(startDateTime).inMinutes;
+
+    // 🔧 유효한 간격인지 확인 (15분 ~ 24시간)
+    if (duration >= 15 && duration <= 1440) {
+      _currentDurationMinutes = duration;
+    } else {
+      _currentDurationMinutes = 60; // 비정상적이면 기본값
+    }
+  }
+
+  // 🆕 저장된 간격으로 종료 시간 업데이트
+  void _updateEndTimeWithCurrentDuration() {
+    if (_isAllDay) return;
+
+    final startDateTime = DateTime(
+      _startDate.year,
+      _startDate.month,
+      _startDate.day,
+      _startTime.hour,
+      _startTime.minute,
+    );
+
+    final endDateTime = startDateTime.add(Duration(minutes: _currentDurationMinutes));
+
+    // 날짜 넘어가는 경우 처리
+    _endDate = DateTime(endDateTime.year, endDateTime.month, endDateTime.day);
+    _endTime = TimeOfDay.fromDateTime(endDateTime);
+  }
+
+  // 🆕 기본 간격(1시간)으로 종료 시간 업데이트
+  void _updateEndTimeWithDefaultDuration() {
+    if (_isAllDay) return;
+
+    final startDateTime = DateTime(
+      _startDate.year,
+      _startDate.month,
+      _startDate.day,
+      _startTime.hour,
+      _startTime.minute,
+    );
+
+    final endDateTime = startDateTime.add(Duration(minutes: 60)); // 기본 1시간
+
+    _endDate = DateTime(endDateTime.year, endDateTime.month, endDateTime.day);
+    _endTime = TimeOfDay.fromDateTime(endDateTime);
+
+    // 기본값으로 설정했으므로 현재 간격도 업데이트
+    _currentDurationMinutes = 60;
+  }
+
+  // 🎯 시작 시간 변경 처리 (핵심 로직)
+  void _onStartTimeChanged(TimeOfDay newStartTime) {
+    setState(() {
+      _startTime = newStartTime;
+
+      // 🎯 간격 유지 로직
+      if (_isEndTimeManuallySet) {
+        // 수동 설정된 간격이 있으면 그 간격 유지
+        _updateEndTimeWithCurrentDuration();
+      } else {
+        // 자동 상태면 기본 1시간 적용
+        _updateEndTimeWithDefaultDuration();
+      }
+    });
+  }
+
+  // 🎯 종료 시간 변경 처리 (수동 설정 기록)
+  void _onEndTimeChanged(TimeOfDay newEndTime) {
+    setState(() {
+      _endTime = newEndTime;
+
+      // 🎯 사용자가 수동으로 변경했음을 기록
+      _isEndTimeManuallySet = true;
+
+      // 새로운 간격 계산 및 저장
+      _calculateCurrentDuration();
+    });
+  }
+
+  // 🎯 하루종일 토글 처리
+  void _onAllDayToggleChanged(bool isAllDay) {
+    setState(() {
+      _isAllDay = isAllDay;
+
+      if (!_isAllDay) {
+        // 하루종일에서 시간 일정으로 바뀔 때 초기화
+        _isEndTimeManuallySet = false;
+        _updateEndTimeWithDefaultDuration();
+      }
+    });
+  }
+
+  // 🆕 간격 표시용 포맷터
+  String _formatDuration(int minutes) {
+    if (minutes < 60) {
+      return '${minutes}분';
+    } else if (minutes % 60 == 0) {
+      return '${minutes ~/ 60}시간';
+    } else {
+      final hours = minutes ~/ 60;
+      final mins = minutes % 60;
+      return '${hours}시간 ${mins}분';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingSchedule != null;
 
     return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(), // 빈 공간 터치 시 키보드 숨김
+      onTap: () => FocusScope.of(context).unfocus(),
       child: Container(
         width: MediaQuery.of(context).size.width * 0.9,
         constraints: BoxConstraints(
@@ -158,7 +299,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
             // 헤더
             _buildHeader(isEditing),
 
-            // 📝 폼 영역 - 키보드 인식을 위해 구조 수정
+            // 폼 영역
             Expanded(
               child: SingleChildScrollView(
                 controller: _scrollController,
@@ -166,14 +307,14 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 제목 입력 - 🔧 TextField를 TextFormField로 변경
+                    // 제목 입력
                     _buildInputField(
                       controller: _titleController,
                       label: '제목',
                       hint: '일정 제목을 입력하세요',
                       icon: Icons.title,
                       color: Color(0xFF6366F1),
-                      autofocus: true, // 자동 포커스
+                      autofocus: true,
                     ),
 
                     SizedBox(height: 16),
@@ -189,40 +330,11 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
                     SizedBox(height: 16),
 
                     // 색상 선택
-                    Text('일정 색상 선택',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)
-                    ),
-                    SizedBox(height: 8),
-
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        Colors.blueAccent,
-                        Colors.greenAccent,
-                        Colors.orangeAccent,
-                        Colors.pinkAccent,
-                        Colors.purpleAccent,
-                      ].map((color) {
-                        final isSelected = _selectedColor.value == color.value;
-                        return GestureDetector(
-                          onTap: () => setState(() => _selectedColor = color),
-                          child: Container(
-                            width: 32, height: 32,
-                            decoration: BoxDecoration(
-                              color: color,
-                              shape: BoxShape.circle,
-                              border: isSelected
-                                  ? Border.all(width: 2, color: Colors.black)
-                                  : null,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
+                    _buildColorSection(),
 
                     SizedBox(height: 16),
 
-                    // 메모 입력 - 🔧 TextField를 TextFormField로 변경
+                    // 메모 입력
                     _buildInputField(
                       controller: _memoController,
                       label: '메모 (선택사항)',
@@ -246,13 +358,77 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     );
   }
 
-  // 🔧 색상 선택 섹션 분리
-  Widget _buildColorSection() {
+  Widget _buildHeader(bool isEditing) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              isEditing ? Icons.edit_rounded : Icons.add_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              isEditing ? '일정 수정' : '새 일정',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          if (_isLoading)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            ),
+          SizedBox(width: 8),
+          IconButton(
+            onPressed: _isLoading ? null : () => Navigator.pop(context),
+            icon: Icon(Icons.close, color: Colors.white, size: 20),
+            constraints: BoxConstraints(minWidth: 32, minHeight: 32),
+            padding: EdgeInsets.zero,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    required Color color,
+    int maxLines = 1,
+    bool autofocus = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '일정 색상 선택',
+          label,
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -260,37 +436,215 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
           ),
         ),
         SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: [
-            Colors.blueAccent,
-            Colors.greenAccent,
-            Colors.orangeAccent,
-            Colors.pinkAccent,
-            Colors.purpleAccent,
-          ].map((color) {
-            final isSelected = _selectedColor.value == color.value;
-            return GestureDetector(
-              onTap: () => setState(() => _selectedColor = color),
-              child: Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: isSelected
-                      ? Border.all(width: 2, color: Colors.black)
-                      : null,
-                ),
-              ),
-            );
-          }).toList(),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: TextFormField(
+            controller: controller,
+            decoration: InputDecoration(
+              hintText: hint,
+              prefixIcon: Icon(icon, color: color, size: 20),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              hintStyle: TextStyle(color: Colors.grey[500]),
+            ),
+            maxLines: maxLines,
+            autofocus: autofocus,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF1F2937),
+            ),
+            textInputAction: maxLines > 1 ? TextInputAction.newline : TextInputAction.next,
+            keyboardType: maxLines > 1 ? TextInputType.multiline : TextInputType.text,
+          ),
         ),
       ],
     );
   }
 
-  // 🔔 알림 설정 섹션
+  Widget _buildDateTimeSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '날짜 및 시간',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF374151),
+          ),
+        ),
+        SizedBox(height: 8),
+
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: Column(
+            children: [
+              // 하루종일 토글
+              Row(
+                children: [
+                  Switch(
+                    value: _isAllDay,
+                    onChanged: _onAllDayToggleChanged, // 🎯 수정된 메서드 연결
+                    activeColor: Color(0xFF6366F1),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    '하루종일',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 16),
+
+              // 시작일시 섹션
+              _buildDateTimeInput(
+                title: '시작',
+                date: _startDate,
+                time: _startTime,
+                color: Color(0xFF10B981),
+                onDateTap: () => _selectDate(isStart: true),
+                onTimeChanged: _onStartTimeChanged, // 🎯 간격 유지 로직 연결
+              ),
+
+              SizedBox(height: 16),
+
+              // 종료일시 섹션
+              _buildDateTimeInput(
+                title: '종료',
+                date: _endDate,
+                time: _endTime,
+                color: Color(0xFFEF4444),
+                onDateTap: () => _selectDate(isStart: false),
+                onTimeChanged: _onEndTimeChanged, // 🎯 수동 설정 추적 연결
+              ),
+
+
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateTimeInput({
+    required String title,
+    required DateTime date,
+    required TimeOfDay time,
+    required Color color,
+    required VoidCallback onDateTap,
+    required Function(TimeOfDay) onTimeChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              title == '시작' ? Icons.play_arrow : Icons.stop,
+              size: 16,
+              color: color,
+            ),
+            SizedBox(width: 4),
+            Text(
+              '$title 일시',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 8),
+
+        Row(
+          children: [
+            // 날짜 선택 버튼
+            Expanded(
+              flex: 2,
+              child: InkWell(
+                onTap: onDateTap,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 16, color: color),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _formatKoreanDate(date),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // 시간 선택 (하루종일이 아닐 때만)
+            if (!_isAllDay) ...[
+              SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _showTimeScrollPicker(time, onTimeChanged),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.access_time, size: 16, color: color),
+                        SizedBox(width: 4),
+                        Text(
+                          _formatTime(time),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildNotificationSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -418,99 +772,12 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     );
   }
 
-  // 알림 시간 설명 텍스트
-  String _getNotificationDescription() {
-    if (_notificationMinutes == 0) {
-      return _isAllDay ? '하루종일 일정 시작 시 알림' : '일정 시작 시간에 알림';
-    } else if (_notificationMinutes >= 1440) {
-      final days = _notificationMinutes ~/ 1440;
-      return _isAllDay
-          ? '하루종일 일정 ${days}일 전 오전 9시에 알림'
-          : '일정 시작 ${days}일 전 같은 시간에 알림';
-    } else if (_notificationMinutes >= 60) {
-      final hours = _notificationMinutes ~/ 60;
-      return _isAllDay
-          ? '하루종일 일정 ${hours}시간 전 알림'
-          : '일정 시작 ${hours}시간 전 알림';
-    } else {
-      return _isAllDay
-          ? '하루종일 일정 ${_notificationMinutes}분 전 알림'
-          : '일정 시작 ${_notificationMinutes}분 전 알림';
-    }
-  }
-
-  Widget _buildHeader(bool isEditing) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              isEditing ? Icons.edit_rounded : Icons.add_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              isEditing ? '일정 수정' : '새 일정',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          if (_isLoading)
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 2,
-              ),
-            ),
-          SizedBox(width: 8),
-          IconButton(
-            onPressed: _isLoading ? null : () => Navigator.pop(context),
-            icon: Icon(Icons.close, color: Colors.white, size: 20),
-            constraints: BoxConstraints(minWidth: 32, minHeight: 32),
-            padding: EdgeInsets.zero,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 🔧 입력 필드 개선 - 유효성 검사 추가
-  Widget _buildInputField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    required Color color,
-    int maxLines = 1,
-    bool autofocus = false,
-  }) {
+  Widget _buildColorSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label,
+          '일정 색상 선택',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -518,225 +785,33 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
           ),
         ),
         SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: TextFormField( // 🔧 TextField → TextFormField로 변경
-            controller: controller,
-            decoration: InputDecoration(
-              hintText: hint,
-              prefixIcon: Icon(icon, color: color, size: 20),
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              hintStyle: TextStyle(color: Colors.grey[500]),
-            ),
-            maxLines: maxLines,
-            autofocus: autofocus, // 자동 포커스 적용
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF1F2937),
-            ),
-            // 🔧 키보드 타입 및 액션 설정
-            textInputAction: maxLines > 1 ? TextInputAction.newline : TextInputAction.next,
-            keyboardType: maxLines > 1 ? TextInputType.multiline : TextInputType.text,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDateTimeSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '날짜 및 시간',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF374151),
-          ),
-        ),
-        SizedBox(height: 8),
-
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Column(
-            children: [
-              // 하루종일 토글
-              Row(
-                children: [
-                  Switch(
-                    value: _isAllDay,
-                    onChanged: (value) => setState(() => _isAllDay = value),
-                    activeColor: Color(0xFF6366F1),
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    '하루종일',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF374151),
-                    ),
-                  ),
-                ],
-              ),
-
-              SizedBox(height: 16),
-
-              // 시작일시 섹션
-              _buildDateTimeInput(
-                title: '시작',
-                date: _startDate,
-                time: _startTime,
-                color: Color(0xFF10B981),
-                onDateTap: () => _selectDate(isStart: true),
-                onTimeChanged: (time) => setState(() => _startTime = time),
-              ),
-
-              SizedBox(height: 16),
-
-              // 종료일시 섹션
-              _buildDateTimeInput(
-                title: '종료',
-                date: _endDate,
-                time: _endTime,
-                color: Color(0xFFEF4444),
-                onDateTap: () => _selectDate(isStart: false),
-                onTimeChanged: (time) => setState(() => _endTime = time),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDateTimeInput({
-    required String title,
-    required DateTime date,
-    required TimeOfDay time,
-    required Color color,
-    required VoidCallback onDateTap,
-    required Function(TimeOfDay) onTimeChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+        Wrap(
+          spacing: 8,
           children: [
-            Icon(
-              title == '시작' ? Icons.play_arrow : Icons.stop,
-              size: 16,
-              color: color,
-            ),
-            SizedBox(width: 4),
-            Text(
-              '$title 일시',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 8),
-
-        Row(
-          children: [
-            // 날짜 선택 버튼
-            Expanded(
-              flex: 2,
-              child: InkWell(
-                onTap: onDateTap,
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.calendar_today, size: 16, color: color),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _formatKoreanDate(date),
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1F2937),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+            Colors.blueAccent,
+            Colors.greenAccent,
+            Colors.orangeAccent,
+            Colors.pinkAccent,
+            Colors.purpleAccent,
+          ].map((color) {
+            final isSelected = _selectedColor.value == color.value;
+            return GestureDetector(
+              onTap: () => setState(() => _selectedColor = color),
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: isSelected
+                      ? Border.all(width: 2, color: Colors.black)
+                      : null,
                 ),
               ),
-            ),
-
-            // 시간 선택 (하루종일이 아닐 때만)
-            if (!_isAllDay) ...[
-              SizedBox(width: 8),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _showTimeScrollPicker(time, onTimeChanged),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey[300]!),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.access_time, size: 16, color: color),
-                        SizedBox(width: 4),
-                        Text(
-                          _formatTime(time),
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1F2937),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
+            );
+          }).toList(),
         ),
       ],
-    );
-  }
-
-  // 스크롤 휠 시간 선택 다이얼로그
-  void _showTimeScrollPicker(TimeOfDay currentTime, Function(TimeOfDay) onTimeChanged) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return TimeScrollPickerModal(
-          initialTime: currentTime,
-          onTimeChanged: onTimeChanged,
-        );
-      },
     );
   }
 
@@ -749,7 +824,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       ),
       child: Column(
         children: [
-          // 🔔 알림 미리보기 (알림이 켜져있을 때만)
+          // 알림 미리보기 (알림이 켜져있을 때만)
           if (_hasNotification) ...[
             Container(
               padding: EdgeInsets.all(12),
@@ -839,32 +914,21 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     );
   }
 
-  // 알림 미리보기 텍스트
-  String _getNotificationPreview() {
-    final scheduleTime = _isAllDay
-        ? '${_formatKoreanDate(_startDate)}'
-        : '${_formatKoreanDate(_startDate)} ${_formatTime(_startTime)}';
-
-    if (_notificationMinutes == 0) {
-      return '알림: $scheduleTime';
-    } else {
-      final option = _notificationOptions.firstWhere((opt) => opt['value'] == _notificationMinutes);
-      return '알림: $scheduleTime (${option['label']})';
-    }
+  // 스크롤 휠 시간 선택 다이얼로그
+  void _showTimeScrollPicker(TimeOfDay currentTime, Function(TimeOfDay) onTimeChanged) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return TimeScrollPickerModal(
+          initialTime: currentTime,
+          onTimeChanged: onTimeChanged,
+        );
+      },
+    );
   }
 
-  // 유틸리티 메서드들
-  String _formatKoreanDate(DateTime date) {
-    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
-    final weekday = weekdays[date.weekday % 7];
-    return '${date.month}월 ${date.day}일 ($weekday)';
-  }
-
-  String _formatTime(TimeOfDay time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  }
-
-  // 액션 메서드들
+  // 🎯 시작 날짜 변경 처리
   Future<void> _selectDate({required bool isStart}) async {
     final date = await showDatePicker(
       context: context,
@@ -890,11 +954,26 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
       setState(() {
         if (isStart) {
           _startDate = date;
+
+          // 시작 날짜 변경 시 간격 유지 로직 적용
+          if (_isEndTimeManuallySet) {
+            _updateEndTimeWithCurrentDuration();
+          } else {
+            _updateEndTimeWithDefaultDuration();
+          }
+
+          // 종료 날짜가 시작 날짜보다 이전이면 조정
           if (_endDate.isBefore(_startDate)) {
             _endDate = _startDate;
           }
         } else {
           _endDate = date;
+
+          // 종료 날짜 수동 변경 시
+          _isEndTimeManuallySet = true;
+          _calculateCurrentDuration();
+
+          // 시작 날짜가 종료 날짜보다 이후면 조정
           if (_startDate.isAfter(_endDate)) {
             _startDate = _endDate;
           }
@@ -903,24 +982,60 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     }
   }
 
+  // 알림 시간 설명 텍스트
+  String _getNotificationDescription() {
+    if (_notificationMinutes == 0) {
+      return _isAllDay ? '하루종일 일정 시작 시 알림' : '일정 시작 시간에 알림';
+    } else if (_notificationMinutes >= 1440) {
+      final days = _notificationMinutes ~/ 1440;
+      return _isAllDay
+          ? '하루종일 일정 ${days}일 전 오전 9시에 알림'
+          : '일정 시작 ${days}일 전 같은 시간에 알림';
+    } else if (_notificationMinutes >= 60) {
+      final hours = _notificationMinutes ~/ 60;
+      return _isAllDay
+          ? '하루종일 일정 ${hours}시간 전 알림'
+          : '일정 시작 ${hours}시간 전 알림';
+    } else {
+      return _isAllDay
+          ? '하루종일 일정 ${_notificationMinutes}분 전 알림'
+          : '일정 시작 ${_notificationMinutes}분 전 알림';
+    }
+  }
+
+  // 알림 미리보기 텍스트
+  String _getNotificationPreview() {
+    final scheduleTime = _isAllDay
+        ? '${_formatKoreanDate(_startDate)}'
+        : '${_formatKoreanDate(_startDate)} ${_formatTime(_startTime)}';
+
+    if (_notificationMinutes == 0) {
+      return '알림: $scheduleTime';
+    } else {
+      final option = _notificationOptions.firstWhere((opt) => opt['value'] == _notificationMinutes);
+      return '알림: $scheduleTime (${option['label']})';
+    }
+  }
+
+  // 유틸리티 메서드들
+  String _formatKoreanDate(DateTime date) {
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    final weekday = weekdays[date.weekday % 7];
+    return '${date.month}월 ${date.day}일 ($weekday)';
+  }
+
+  String _formatTime(TimeOfDay time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
   bool _isSameDay(DateTime date1, DateTime date2) {
     return date1.year == date2.year &&
         date1.month == date2.month &&
         date1.day == date2.day;
   }
 
-  bool _isTimeAfter(TimeOfDay time1, TimeOfDay time2) {
-    return time1.hour > time2.hour ||
-        (time1.hour == time2.hour && time1.minute > time2.minute);
-  }
-
   // ✅ 핵심: 알림 설정이 포함된 Schedule 모델로 저장
   Future<void> _saveSchedule() async {
-    // 🔧 폼 유효성 검사 - null 체크 추가
-    if (_formKey.currentState != null && !_formKey.currentState!.validate()) {
-      return;
-    }
-
     if (_titleController.text.trim().isEmpty) {
       _showErrorSnackBar('제목을 입력해주세요');
       return;
@@ -929,8 +1044,8 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
     setState(() => _isLoading = true);
 
     try {
-      DateTime scheduledAt; // 기존 모델의 시작 시간
-      DateTime? endTime;    // 기존 모델의 종료 시간
+      DateTime scheduledAt;
+      DateTime? endTime;
 
       if (_isAllDay) {
         // 하루종일 일정
@@ -968,22 +1083,21 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
         }
       }
 
-      // ✅ Schedule 모델 생성 - 안전한 방식으로 수정
+      // Schedule 모델 생성
       final schedule = Schedule(
         id: widget.existingSchedule?.id ?? '',
         title: _titleController.text.trim(),
         memo: _memoController.text.trim(),
-        scheduledAt: scheduledAt,    // 기존 필드명
-        endTime: endTime,           // 기존 필드명
+        scheduledAt: scheduledAt,
+        endTime: endTime,
         isAllDay: _isAllDay,
         createdAt: widget.existingSchedule?.createdAt ?? DateTime.now(),
         ownerColorValue: _selectedColor.value,
-        // 🔔 알림 설정 추가 - 안전하게
         hasNotification: _hasNotification,
         notificationMinutes: _notificationMinutes,
       );
 
-      // Schedule 객체를 반환 (기존 코드와 호환)
+      // Schedule 객체를 반환
       Navigator.pop(context, schedule);
     } catch (e) {
       _showErrorSnackBar('오류가 발생했습니다: $e');
@@ -1177,7 +1291,7 @@ class _TimeScrollPickerModalState extends State<TimeScrollPickerModal> {
   }
 }
 
-// 🔧 더 나은 사용법 - Navigator.push로 변경
+// 다이얼로그 호출 함수
 Future<Schedule?> showScheduleFormDialog({
   required BuildContext context,
   DateTime? selectedDate,
@@ -1191,7 +1305,7 @@ Future<Schedule?> showScheduleFormDialog({
     pageBuilder: (context, animation1, animation2) {
       return Scaffold(
         backgroundColor: Colors.transparent,
-        resizeToAvoidBottomInset: true, // 🔧 키보드 대응 핵심!
+        resizeToAvoidBottomInset: true,
         body: SafeArea(
           child: Center(
             child: Material(

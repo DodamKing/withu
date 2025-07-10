@@ -22,6 +22,8 @@ class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
+  DateTime _currentMonth = DateTime.now();
+
   // main.dart에서 접근할 수 있도록 getter 추가
   DateTime? get selectedDay => _selectedDay;
 
@@ -29,6 +31,7 @@ class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
   void initState() {
     super.initState();
     _selectedDay = DateTime.now();
+    _currentMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
   }
 
   @override
@@ -102,7 +105,7 @@ class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
                   ],
                 ),
                 child: StreamBuilder<List<Schedule>>(
-                  stream: _firestoreService.getAllSchedules(),
+                  stream: _firestoreService.getSchedulesByMonth(_currentMonth),
                   builder: (context, snapshot) {
                     final allSchedules = snapshot.data ?? [];
 
@@ -124,6 +127,12 @@ class CalendarScreenState extends State<CalendarScreen> { // public으로 변경
                       onFormatChanged: (format) {
                         setState(() {
                           _calendarFormat = format;
+                        });
+                      },
+                      onPageChanged: (focusedDay) {
+                        setState(() {
+                          _focusedDay = focusedDay;
+                          _currentMonth = DateTime(focusedDay.year, focusedDay.month, 1);
                         });
                       },
                       eventLoader: (day) {

@@ -165,7 +165,7 @@ class HomeScreen extends StatelessWidget {
 
                 // 간단한 통계 (선택사항)
                 StreamBuilder<List<Schedule>>(
-                  stream: _firestoreService.getAllSchedules(),
+                  stream: _firestoreService.getHomeFeedSchedules(),
                   builder: (context, snapshot) {
                     final allSchedules = snapshot.data ?? [];
                     final tomorrow = today.add(Duration(days: 1));

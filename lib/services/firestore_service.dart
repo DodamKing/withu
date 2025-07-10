@@ -96,6 +96,47 @@ class FirestoreService {
     });
   }
 
+  /// 🏠 홈 화면용: 오늘+내일 일정만 (최대 20개)
+  Stream<List<Schedule>> getHomeFeedSchedules() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dayAfterTomorrow = today.add(Duration(days: 2));
+
+    return _firestore
+        .collection(_collection)
+        .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(today))
+        .where('scheduled_at', isLessThan: Timestamp.fromDate(dayAfterTomorrow))
+        .orderBy('scheduled_at')
+        .limit(20) // 홈 화면은 20개 제한
+        .snapshots()
+        .map((snapshot) {
+      final schedules = snapshot.docs.map((doc) => Schedule.fromFirestore(doc)).toList();
+
+      // 하루종일 일정을 맨 위에 표시
+      schedules.sort((a, b) {
+        if (a.isAllDay && !b.isAllDay) return -1;
+        if (!a.isAllDay && b.isAllDay) return 1;
+        return a.scheduledAt.compareTo(b.scheduledAt);
+      });
+
+      return schedules;
+    });
+  }
+
+  /// 📅 달력 화면용: 특정 월의 일정만
+  Stream<List<Schedule>> getSchedulesByMonth(DateTime month) {
+    final monthStart = DateTime(month.year, month.month, 1);
+    final monthEnd = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
+
+    return _firestore
+        .collection(_collection)
+        .where('scheduled_at', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
+        .where('scheduled_at', isLessThanOrEqualTo: Timestamp.fromDate(monthEnd))
+        .orderBy('scheduled_at')
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Schedule.fromFirestore(doc)).toList());
+  }
+
   // 하루종일 일정만 가져오기 (새로 추가)
   Stream<List<Schedule>> getAllDaySchedules() {
     return _firestore
